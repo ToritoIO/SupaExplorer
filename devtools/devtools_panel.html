@@ -30,13 +30,17 @@
         font-weight: 600;
       }
       button {
-        background: #22d3ee;
-        color: #0f172a;
+        background: #1e73be;
+        color: #ffffff;
         border: none;
         border-radius: 6px;
         padding: 6px 12px;
         font-weight: 600;
         cursor: pointer;
+        transition: background 0.15s ease;
+      }
+      button:hover:not(:disabled) {
+        background: #14518a;
       }
       button:disabled {
         opacity: 0.4;
