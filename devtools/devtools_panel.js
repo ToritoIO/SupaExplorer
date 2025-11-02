@@ -1,7 +1,10 @@
+import { createLeakScanner, summarizeLeakMatch } from "../shared/leak_scanner.js";
+
 const MAX_REQUESTS = 50;
 const INTERESTING_HEADERS = ["authorization", "apikey", "api-key", "x-client-info", "x-apikey"];
 const SUPABASE_DETECTION_MESSAGE = "SBDE_SUPABASE_REQUEST";
 const ASSET_DETECTION_RECORD_MESSAGE = "SBDE_REGISTER_ASSET_DETECTION";
+const LEAK_DETECTION_RECORD_MESSAGE = "SBDE_REGISTER_GENERIC_LEAK";
 const STATIC_SCAN_MAX_BYTES = 1024 * 1024; // Guard asset scanning to 1MB payloads
 const STATIC_SCAN_CONTEXT_CHARS = 400;
 const STATIC_SCAN_MIME_HINTS = ["javascript", "json", "text"];
@@ -11,7 +14,14 @@ const SUPABASE_KEY_REGEX = /['"](?<token>ey[A-Za-z0-9\-_]{20,}\.[A-Za-z0-9\-_]{2
 const TAB_CONFIG = [
   { key: "requests", label: "Requests" },
   { key: "assets", label: "Assets" },
+  { key: "leaks", label: "Leaks" },
 ];
+
+const CATEGORY_LABELS = {
+  requests: { singular: "request", plural: "requests" },
+  assets: { singular: "asset", plural: "assets" },
+  leaks: { singular: "leak", plural: "leaks" },
+};
 
 const dom = {
   status: document.getElementById("status"),
@@ -50,6 +60,94 @@ TAB_CONFIG.forEach(({ key }) => {
 });
 
 const staticDetectionCache = new Set();
+const leakDetectionCache = new Set();
+const leakScanner = createLeakScanner();
+
+const pageScope = {
+  origin: null,
+  hostname: null,
+  rootDomain: null,
+};
+
+function deriveRootDomain(hostname) {
+  if (!hostname || typeof hostname !== "string") {
+    return null;
+  }
+  const parts = hostname.split(".").filter(Boolean);
+  if (parts.length <= 1) {
+    return hostname;
+  }
+  if (parts.length === 2) {
+    return parts.join(".");
+  }
+
+  const last = parts[parts.length - 1];
+  const secondLast = parts[parts.length - 2];
+  const countryTld = last.length === 2;
+  const commonSecondLevels = new Set(["com", "net", "org", "gov", "edu", "co", "mil", "gob", "govt"]);
+
+  if (countryTld && commonSecondLevels.has(secondLast) && parts.length >= 3) {
+    return parts.slice(parts.length - 3).join(".");
+  }
+
+  return parts.slice(parts.length - 2).join(".");
+}
+
+function updatePageScopeFromUrl(url) {
+  if (!url || typeof url !== "string") {
+    return;
+  }
+  try {
+    const parsed = new URL(url);
+    pageScope.origin = parsed.origin;
+    pageScope.hostname = parsed.hostname;
+    pageScope.rootDomain = deriveRootDomain(parsed.hostname);
+  } catch (error) {
+    // Ignore invalid URLs.
+  }
+}
+
+function isUrlInPageScope(url) {
+  if (!url || typeof url !== "string") {
+    return false;
+  }
+  if (!pageScope.hostname && !pageScope.rootDomain) {
+    return true;
+  }
+  try {
+    const { hostname } = new URL(url);
+    if (!hostname) {
+      return false;
+    }
+    if (hostname === pageScope.hostname) {
+      return true;
+    }
+    if (pageScope.rootDomain) {
+      if (hostname === pageScope.rootDomain) {
+        return true;
+      }
+      if (hostname.endsWith(`.${pageScope.rootDomain}`)) {
+        return true;
+      }
+    }
+  } catch (error) {
+    return false;
+  }
+  return false;
+}
+
+chrome.devtools.inspectedWindow.eval("location.href", (result, exceptionInfo) => {
+  if (exceptionInfo && exceptionInfo.isException) {
+    return;
+  }
+  if (typeof result === "string" && result) {
+    updatePageScopeFromUrl(result);
+  }
+});
+
+chrome.devtools.network.onNavigated.addListener((url) => {
+  updatePageScopeFromUrl(url);
+});
 
 function generateId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -95,6 +193,7 @@ function createEntry(request) {
     requestId: request._requestId || request.requestId || null,
     tabId: chrome.devtools.inspectedWindow.tabId,
     hasAuthHeaders,
+    category: "requests",
   };
 }
 
@@ -125,6 +224,18 @@ function deriveConnectionPayload(entry) {
   };
 }
 
+function isSupabaseAssetUrl(url) {
+  if (!url) {
+    return false;
+  }
+  try {
+    const { hostname } = new URL(url);
+    return hostname.includes(".supabase.co");
+  } catch (error) {
+    return false;
+  }
+}
+
 function shouldCapture(request) {
   const url = request.request?.url;
   if (!url) return false;
@@ -147,6 +258,10 @@ function shouldScanForEmbeddedCredentials(request) {
 
   const url = request.request?.url || "";
   if (!url) {
+    return false;
+  }
+  const supabaseAsset = isSupabaseAssetUrl(url);
+  if (!supabaseAsset && !isUrlInPageScope(url)) {
     return false;
   }
 
@@ -192,12 +307,15 @@ function scanRequestForEmbeddedCredentials(request) {
         return;
       }
 
-      const detections = detectSupabaseCredentials(source, request);
-      if (!detections.length) {
-        return;
+      const supabaseDetections = detectSupabaseCredentials(source, request);
+      if (supabaseDetections.length) {
+        supabaseDetections.forEach((detection) => handleStaticDetection(request, detection));
       }
 
-      detections.forEach((detection) => handleStaticDetection(request, detection));
+      const leakDetections = leakScanner.scan(source);
+      if (leakDetections.length) {
+        handleLeakDetections(request, leakDetections);
+      }
     });
   } catch (error) {
     console.warn("SBDE static asset scan failed", error);
@@ -397,6 +515,7 @@ function createStaticEntry(request, detection) {
     tabId: chrome.devtools.inspectedWindow.tabId,
     hasAuthHeaders: true,
     isStaticDetection: true,
+    category: "assets",
     supabaseUrl: detection.supabaseUrl || "",
     assetUrl,
     keyType: detection.keyType || "",
@@ -458,15 +577,150 @@ function recordAssetDetection(entry, detection) {
   }
 }
 
+function handleLeakDetections(request, detections) {
+  if (!Array.isArray(detections) || detections.length === 0) {
+    return;
+  }
+  const assetUrl = request?.request?.url || "";
+  if (!isSupabaseAssetUrl(assetUrl) && !isUrlInPageScope(assetUrl)) {
+    return;
+  }
+  const newEntries = [];
+
+  detections.forEach((rawDetection) => {
+    if (!rawDetection?.match) {
+      return;
+    }
+    const sourceUrl = rawDetection.sourceUrl || assetUrl || "";
+    const cacheKey = `${rawDetection.key}|${rawDetection.match}|${sourceUrl}|${rawDetection.encodedFrom || ""}`;
+    if (leakDetectionCache.has(cacheKey)) {
+      return;
+    }
+    leakDetectionCache.add(cacheKey);
+
+    const detection = {
+      ...rawDetection,
+      sourceUrl,
+      assetUrl,
+      matchSnippet: summarizeLeakMatch(rawDetection.match),
+    };
+
+    const entry = createLeakEntry(request, detection);
+    if (entry) {
+      newEntries.push(entry);
+      recordLeakDetection(entry);
+    }
+  });
+
+  if (!newEntries.length) {
+    return;
+  }
+
+  newEntries
+    .slice()
+    .reverse()
+    .forEach((entry) => {
+      state.requests.unshift(entry);
+    });
+
+  if (state.requests.length > MAX_REQUESTS) {
+    state.requests.length = MAX_REQUESTS;
+  }
+
+  focusEntry(newEntries[0]);
+  renderRequests();
+}
+
+function createLeakEntry(request, detection) {
+  const sourceUrl = detection.sourceUrl || detection.assetUrl || request?.request?.url || "";
+  const timestamp = new Date().toISOString();
+  const contextSnippet =
+    typeof detection.context === "string" && detection.context.length > 240
+      ? `${detection.context.slice(0, 240)}...`
+      : detection.context;
+  const encodedSnippet =
+    typeof detection.encodedFrom === "string" && detection.encodedFrom.length > 120
+      ? `${detection.encodedFrom.slice(0, 120)}...`
+      : detection.encodedFrom;
+
+  const headers = [
+    { name: "Pattern", value: detection.key },
+    { name: "Matched value", value: detection.match },
+  ];
+
+  if (contextSnippet) {
+    headers.push({ name: "Context", value: contextSnippet });
+  }
+
+  headers.push({ name: "Source asset", value: sourceUrl || "(unknown source)" });
+
+  if (encodedSnippet) {
+    headers.push({ name: "Decoded from", value: encodedSnippet });
+  }
+
+  return {
+    id: generateId(),
+    method: "LEAK",
+    url: sourceUrl || "(unknown)",
+    status: 0,
+    statusText: detection.key || "Potential API credential",
+    startedDateTime: timestamp,
+    time: request.time || 0,
+    initiator: request.initiator?.type || "scanner",
+    headers,
+    headerMap: {},
+    requestId: null,
+    tabId: chrome.devtools.inspectedWindow.tabId,
+    hasAuthHeaders: true,
+    isLeakDetection: true,
+    category: "leaks",
+    leak: {
+      patternKey: detection.key,
+      match: detection.match,
+      matchSnippet: detection.matchSnippet,
+      context: detection.context,
+      encodedFrom: detection.encodedFrom || null,
+      sourceUrl,
+      assetUrl: detection.assetUrl || "",
+      detectedAt: timestamp,
+    },
+  };
+}
+
+function recordLeakDetection(entry) {
+  try {
+    const leak = entry.leak || {};
+    const payload = {
+      sourceUrl: leak.sourceUrl || entry.url || "",
+      assetUrl: leak.assetUrl || "",
+      pattern: leak.patternKey || entry.statusText || "",
+      matchSnippet: leak.matchSnippet || summarizeLeakMatch(leak.match || ""),
+      contextSnippet:
+        typeof leak.context === "string" ? leak.context.slice(0, 200) : undefined,
+      encodedSnippet:
+        typeof leak.encodedFrom === "string" ? leak.encodedFrom.slice(0, 80) : undefined,
+      detectedAt: leak.detectedAt || new Date().toISOString(),
+    };
+    Object.keys(payload).forEach((key) => {
+      if (payload[key] === undefined) {
+        delete payload[key];
+      }
+    });
+    chrome.runtime.sendMessage({ type: LEAK_DETECTION_RECORD_MESSAGE, payload }, () => {});
+  } catch (error) {
+    console.warn("SBDE failed to persist generic leak detection", error);
+  }
+}
+
 function focusEntry(entry) {
   if (!entry) {
     return;
   }
-  if (state.showOnlyAuth && !entry.hasAuthHeaders && !entry.isStaticDetection) {
+  if (entry.category === "requests" && state.showOnlyAuth && !entry.hasAuthHeaders) {
     // Entry will be hidden; keep current tab.
     return;
   }
-  const targetTab = entry.isStaticDetection ? "assets" : "requests";
+  const targetTab = entry.category || (entry.isStaticDetection ? "assets" : "requests");
   state.activeTab = targetTab;
   state.selectedId = entry.id;
   state.pendingScrollReset = true;
@@ -480,21 +734,30 @@ function renderRequests() {
   const grouped = {
     requests: [],
     assets: [],
+    leaks: [],
   };
 
   if (!state.requests.length) {
     updateTabs(grouped);
     state.selectedId = null;
-    setStatus("Requests will appear as the inspected page talks to Supabase.");
-    renderNavigationPlaceholder("Requests will appear as the page talks to Supabase.");
-    renderDetailPlaceholder("Capture Supabase traffic to inspect connection details.");
+    setStatus("Requests and detections will appear as the inspected page talks to Supabase.");
+    renderNavigationPlaceholder("Requests or detections will appear as the page talks to Supabase.");
+    renderDetailPlaceholder("Capture traffic to inspect connection details and potential leaks.");
     dom.nav.scrollTop = 0;
     return;
   }
 
-  const filtered = state.requests.filter((entry) => !state.showOnlyAuth || entry.hasAuthHeaders);
+  const filtered = state.requests.filter((entry) => {
+    if (entry.category === "requests") {
+      return !state.showOnlyAuth || entry.hasAuthHeaders;
+    }
+    return true;
+  });
   filtered.forEach((entry) => {
-    const bucket = entry.isStaticDetection ? "assets" : "requests";
+    const bucket = entry.category || (entry.isStaticDetection ? "assets" : "requests");
+    if (!grouped[bucket]) {
+      grouped[bucket] = [];
+    }
     grouped[bucket].push(entry);
   });
   updateTabs(grouped);
@@ -502,29 +765,29 @@ function renderRequests() {
   if (!filtered.length) {
     state.selectedId = null;
     const filterMessage = state.showOnlyAuth
-      ? "No items match the current filter. Disable “Only auth headers” to see all traffic."
+      ? 'No network requests match the current filter. Disable "Only auth headers" to see all traffic.'
       : "No items captured yet.";
     setStatus(filterMessage);
-    const activeLabel = state.activeTab === "assets" ? "assets" : "requests";
-    renderNavigationPlaceholder(`No ${activeLabel} match the current filter.`);
-    renderDetailPlaceholder("Adjust the filter to see matching requests or assets.");
+    const labels = CATEGORY_LABELS[state.activeTab] || CATEGORY_LABELS.requests;
+    renderNavigationPlaceholder(`No ${labels.plural} match the current filter.`);
+    renderDetailPlaceholder("Adjust the filter to see matching requests or detections.");
     dom.nav.scrollTop = 0;
     return;
   }
 
   const activeEntries = grouped[state.activeTab] || [];
   const totalDescriptor = filtered.length === 1 ? "item" : "items";
-  const activeLabelSingular = state.activeTab === "assets" ? "asset" : "request";
-  const activeLabelPlural = state.activeTab === "assets" ? "assets" : "requests";
-  const activeDescriptor = activeEntries.length === 1 ? activeLabelSingular : activeLabelPlural;
-  const filterDescriptor = state.showOnlyAuth ? "with auth headers captured this session" : "captured this session";
+  const labels = CATEGORY_LABELS[state.activeTab] || CATEGORY_LABELS.requests;
+  const activeDescriptor = activeEntries.length === 1 ? labels.singular : labels.plural;
+  const filterDescriptor = state.showOnlyAuth
+    ? "captured items (requests filtered to auth headers)"
+    : "captured this session";
   setStatus(`${activeEntries.length} ${activeDescriptor} shown (${filtered.length} ${totalDescriptor} ${filterDescriptor}).`);
 
   if (!activeEntries.length) {
     state.selectedId = null;
-    const emptyLabel = activeLabelPlural;
-    renderNavigationPlaceholder(`No ${emptyLabel} captured in this tab.`);
-    renderDetailPlaceholder(`Switch tabs or adjust filters to inspect ${emptyLabel}.`);
+    renderNavigationPlaceholder(`No ${labels.plural} captured in this tab.`);
+    renderDetailPlaceholder(`Switch tabs or adjust filters to inspect ${labels.plural}.`);
     dom.nav.scrollTop = shouldResetScroll ? 0 : previousScroll;
     return;
   }
@@ -563,7 +826,7 @@ function renderDetailPlaceholder(message) {
 function renderDetail(entry) {
   dom.detail.innerHTML = "";
   if (!entry) {
-    renderDetailPlaceholder("Select a request or asset to view its headers and connection details.");
+    renderDetailPlaceholder("Select a request, asset, or leak to view its details.");
     return;
   }
   const cardFragment = createRequestCard(entry);
@@ -613,11 +876,14 @@ function createNavItem(entry, isActive) {
   }
 
   if (statusEl) {
-    const statusLabel = entry.status
-      ? String(entry.status)
-      : entry.isStaticDetection
-        ? "KEY"
-        : "";
+    let statusLabel = "";
+    if (entry.category === "requests" && entry.status) {
+      statusLabel = String(entry.status);
+    } else if (entry.category === "assets") {
+      statusLabel = "KEY";
+    } else if (entry.category === "leaks") {
+      statusLabel = "!";
+    }
     statusEl.textContent = statusLabel;
   }
 
@@ -628,7 +894,14 @@ function createNavItem(entry, isActive) {
 
   if (metaEl) {
     const metaParts = [];
-    if (entry.isStaticDetection) {
+    if (entry.isLeakDetection) {
+      if (entry.statusText) {
+        metaParts.push(entry.statusText);
+      }
+      if (entry.leak?.sourceUrl) {
+        metaParts.push(formatNavUrl(entry.leak.sourceUrl));
+      }
+    } else if (entry.isStaticDetection) {
       const supabaseHeader = (entry.headers || []).find((header) => header.name === "Supabase URL");
       if (supabaseHeader?.value) {
         metaParts.push(supabaseHeader.value);
@@ -646,8 +919,9 @@ function createNavItem(entry, isActive) {
   }
 
   button.classList.toggle("active", Boolean(isActive));
-  button.classList.toggle("asset", Boolean(entry.isStaticDetection));
-  button.classList.toggle("request", !entry.isStaticDetection);
+  button.classList.toggle("asset", entry.category === "assets");
+  button.classList.toggle("request", entry.category === "requests");
+  button.classList.toggle("leak", entry.category === "leaks");
   button.addEventListener("click", () => {
     if (state.selectedId === entry.id) {
       return;
@@ -681,21 +955,38 @@ function createRequestCard(entry) {
   const headerListEl = fragment.querySelector(".header-list");
   const sendBtn = fragment.querySelector(".send-btn");
 
-  card.classList.toggle("asset", Boolean(entry.isStaticDetection));
-  card.classList.toggle("request", !entry.isStaticDetection);
+  card.classList.toggle("asset", entry.category === "assets");
+  card.classList.toggle("request", entry.category === "requests");
+  card.classList.toggle("leak", entry.category === "leaks");
 
   methodEl.textContent = entry.method;
   urlEl.textContent = entry.url;
-  const statusDescriptor = entry.status
-    ? `${entry.status} ${entry.statusText}`.trim()
-    : entry.statusText || "No response status";
-  metaEl.textContent = [statusDescriptor || "No response status", `Initiator: ${entry.initiator}`].join(" • ");
 
-  const headersToDisplay = entry.isStaticDetection
-    ? entry.headers || []
-    : (entry.headers || []).filter((header) =>
-        INTERESTING_HEADERS.includes((header.name || "").toLowerCase())
-      );
+  if (entry.category === "leaks") {
+    const leakMeta = [];
+    leakMeta.push(entry.statusText || "Potential API credential");
+    leakMeta.push("Static asset scan");
+    if (entry.leak?.encodedFrom) {
+      leakMeta.push("Decoded from base64");
+    }
+    metaEl.textContent = leakMeta.filter(Boolean).join(" • ");
+  } else {
+    const statusDescriptor = entry.status
+      ? `${entry.status} ${entry.statusText}`.trim()
+      : entry.statusText || "No response status";
+    const metaParts = [statusDescriptor || "No response status"];
+    if (entry.initiator) {
+      metaParts.push(`Initiator: ${entry.initiator}`);
+    }
+    metaEl.textContent = metaParts.filter(Boolean).join(" • ");
+  }
+
+  const headersToDisplay =
+    entry.isStaticDetection || entry.isLeakDetection
+      ? entry.headers || []
+      : (entry.headers || []).filter((header) =>
+          INTERESTING_HEADERS.includes((header.name || "").toLowerCase())
+        );
 
   if (headersToDisplay.length) {
     headersToDisplay.forEach((header) => {
@@ -716,13 +1007,70 @@ function createRequestCard(entry) {
     empty.className = "header-row";
     empty.textContent = entry.isStaticDetection
       ? "No metadata captured."
-      : "No auth headers detected.";
+      : entry.isLeakDetection
+        ? "No leak metadata captured."
+        : "No auth headers detected.";
     headerListEl.appendChild(empty);
   }
 
-  sendBtn.addEventListener("click", () => sendEntry(entry, card));
+  if (entry.isLeakDetection) {
+    sendBtn.textContent = "Copy match";
+    if (!entry.leak?.match) {
+      sendBtn.disabled = true;
+    }
+    sendBtn.addEventListener("click", async () => {
+      const match = entry.leak?.match;
+      if (!match) {
+        setStatus("No match to copy for this leak.");
+        return;
+      }
+      const ok = await copyToClipboard(match);
+      if (ok) {
+        const previous = sendBtn.textContent;
+        sendBtn.textContent = "Copied!";
+        setStatus("Leak copied to clipboard.");
+        setTimeout(() => {
+          sendBtn.textContent = previous;
+        }, 1500);
+      } else {
+        setStatus("Clipboard copy failed. Check clipboard permissions.");
+      }
+    });
+  } else {
+    sendBtn.addEventListener("click", () => sendEntry(entry, card));
+  }
 
   return fragment;
+}
+
+async function copyToClipboard(text) {
+  if (!text) {
+    return false;
+  }
+  try {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (error) {
+    // Fallback below
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "absolute";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } catch (error) {
+    copied = false;
+  }
+  document.body.removeChild(textarea);
+  return copied;
 }
 
 async function sendEntry(entry, card) {

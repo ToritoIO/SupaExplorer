@@ -93,6 +93,7 @@ function createSummarySection(report) {
   header.style.display = "flex";
   header.style.alignItems = "center";
   header.style.gap = "12px";
+  header.style.justifyContent = "space-between";
 
   const title = document.createElement("h2");
   title.textContent = "Overview";
@@ -126,6 +127,9 @@ function createSummarySection(report) {
 
   if (Array.isArray(report.assetDetections) && report.assetDetections.length) {
     stats.push({ label: "Static asset exposures", value: formatCount(report.assetDetections.length) });
+  }
+  if (Array.isArray(report.leakDetections) && report.leakDetections.length) {
+    stats.push({ label: "API leaks detected", value: formatCount(report.leakDetections.length) });
   }
 
   stats.forEach((stat) => {
@@ -206,7 +210,7 @@ function createFindingsSection(report) {
   }
 
   const table = document.createElement("table");
-  table.className = "findings-table";
+  table.className = "findings-table table-findings";
 
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
@@ -241,16 +245,12 @@ function createAssetDetectionsSection(report) {
   title.textContent = "Static Asset Exposures";
   section.appendChild(title);
 
-  const intro = document.createElement("p");
-  intro.textContent = "While DevTools was open, the extension detected Supabase credentials embedded in static assets. Review and rotate these credentials immediately.";
-  section.appendChild(intro);
-
   const table = document.createElement("table");
   table.className = "findings-table asset-table";
 
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
-  ["Detected", "Supabase URL", "Asset URL", "Key snippet"].forEach((label) => {
+  ["Supabase URL", "Asset URL", "Key snippet"].forEach((label) => {
     const th = document.createElement("th");
     th.textContent = label;
     headRow.appendChild(th);
@@ -261,10 +261,6 @@ function createAssetDetectionsSection(report) {
   const tbody = document.createElement("tbody");
   detections.forEach((detection) => {
     const tr = document.createElement("tr");
-
-    const detectedCell = document.createElement("td");
-    detectedCell.textContent = formatDate(detection.detectedAt).split(",")[0] || formatDate(detection.detectedAt);
-    tr.appendChild(detectedCell);
 
     const supabaseCell = document.createElement("td");
     supabaseCell.textContent = detection.supabaseUrl || "—";
@@ -277,6 +273,59 @@ function createAssetDetectionsSection(report) {
     const snippetCell = document.createElement("td");
     snippetCell.textContent = detection.apiKeySnippet || "—";
     tr.appendChild(snippetCell);
+
+    tbody.appendChild(tr);
+  });
+
+  table.appendChild(tbody);
+  section.appendChild(table);
+  return section;
+}
+
+function createLeakDetectionsSection(report) {
+  const leaks = Array.isArray(report.leakDetections) ? report.leakDetections : [];
+  if (!leaks.length) {
+    return null;
+  }
+
+  const section = document.createElement("section");
+  section.className = "report-section";
+
+  const title = document.createElement("h2");
+  title.textContent = "API Credential Leaks";
+  section.appendChild(title);
+
+  const table = document.createElement("table");
+  table.className = "findings-table leak-table";
+
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  ["Pattern", "Snippet", "Source"].forEach((label) => {
+    const th = document.createElement("th");
+    th.textContent = label;
+    headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  leaks.forEach((leak) => {
+    const tr = document.createElement("tr");
+
+    const patternCell = document.createElement("td");
+    patternCell.textContent = leak.pattern || "—";
+    tr.appendChild(patternCell);
+
+    const snippetCell = document.createElement("td");
+    const snippetValue = leak.matchSnippet || "";
+    snippetCell.textContent = snippetValue
+      ? (snippetValue.length > 80 ? `${snippetValue.slice(0, 80)}…` : snippetValue)
+      : "—";
+    tr.appendChild(snippetCell);
+
+    const sourceCell = document.createElement("td");
+    sourceCell.textContent = leak.sourceUrl || leak.assetUrl || "—";
+    tr.appendChild(sourceCell);
 
     tbody.appendChild(tr);
   });
@@ -335,6 +384,10 @@ function renderReport(report) {
   const assetsSection = createAssetDetectionsSection(report);
   if (assetsSection) {
     dom.root.appendChild(assetsSection);
+  }
+  const leaksSection = createLeakDetectionsSection(report);
+  if (leaksSection) {
+    dom.root.appendChild(leaksSection);
   }
   dom.root.appendChild(createFindingsSection(report));
   dom.root.appendChild(createRecommendationsSection(report));

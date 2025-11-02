@@ -124,7 +124,7 @@
 }
 
 .report-section h2 {
-  margin-bottom: 12px;
+  padding-bottom: 20px;
   font-size: 1.15rem;
 }
 
@@ -174,7 +174,7 @@
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 16px;
+  gap: 10px;
   margin-top: 16px;
 }
 
@@ -252,7 +252,7 @@
 }
 
 .finding-status[data-state="protected"] {
-  color: #86efac;
+  color: #228e4a;
 }
 
 .finding-list {
@@ -312,7 +312,7 @@
 
 .recommendation-severity[data-severity="medium"] {
   background: rgba(250, 204, 21, 0.2);
-  color: #fde68a;
+  color: #836d16;
 }
 
 .recommendation-severity[data-severity="low"] {
@@ -352,5 +352,44 @@
 @media print {
   .download-btn {
     display: none !important;
+  }
+  .report-body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .report-container {
+    box-shadow: none;
+  }
+  .report-section {
+    border: none;
+    box-shadow: none;
+    break-inside: avoid;
+  }
+  .report-section:first-child {
+    border-top: none;
+  }
+  .report-section:last-child {
+    border-bottom: none;
+  }
+  .findings-table {
+    table-layout: fixed;
+    font-size: 8pt;
+  }
+  .findings-table th,
+  .findings-table td {
+    word-wrap: break-word;
+    white-space: normal;
+  }
+  .table-findings th:nth-child(1) {
+    width: 25%;
+  }
+  .table-findings th:nth-child(2) {
+    width: 20%;
+  }
+  .table-findings th:nth-child(3) {
+    width: 10%;
+  }
+  .table-findings th:nth-child(4) {
+    width: 45%;
   }
 }

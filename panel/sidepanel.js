@@ -6,6 +6,7 @@ const storageKeys = {
 };
 
 const ASSET_DETECTIONS_KEY = "sbde_asset_detections";
+const LEAK_DETECTIONS_KEY = "sbde_generic_leaks";
 
 const RISK_LEVEL_ORDER = {
   low: 0,
@@ -29,6 +30,9 @@ const state = {
   currentTable: null,
   theme: "dark",
   connectionWriteSource: null,
+  assetDetections: [],
+  leakDetections: [],
+  inspectedHost: null,
 };
 
 const dom = {
@@ -65,6 +69,27 @@ const sensitiveColumnIndicators = [
 
 function sanitize(value) {
   return (value || "").trim();
+}
+
+function deriveRootDomain(hostname) {
+  if (!hostname || typeof hostname !== "string") {
+    return null;
+  }
+  const parts = hostname.split(".").filter(Boolean);
+  if (parts.length <= 1) {
+    return hostname;
+  }
+  if (parts.length === 2) {
+    return parts.join(".");
+  }
+  const last = parts[parts.length - 1];
+  const secondLast = parts[parts.length - 2];
+  const countryTld = last.length === 2;
+  const commonSecondLevels = new Set(["com", "net", "org", "gov", "edu", "co", "mil", "gob", "govt"]);
+  if (countryTld && commonSecondLevels.has(secondLast) && parts.length >= 3) {
+    return parts.slice(parts.length - 3).join(".");
+  }
+  return parts.slice(parts.length - 2).join(".");
 }
 
 function setStatus(message, type = "idle") {
@@ -194,6 +219,111 @@ async function loadAssetDetectionsForProject(projectId) {
     });
 }
 
+async function loadLeakDetectionsForHost(hostname) {
+  if (!hostname) {
+    return [];
+  }
+  const stored = await storageGet(LEAK_DETECTIONS_KEY);
+  const map = stored?.[LEAK_DETECTIONS_KEY];
+  if (!map || typeof map !== "object") {
+    return [];
+  }
+  const rootDomain = deriveRootDomain(hostname);
+  const exact = Array.isArray(map[hostname]) ? map[hostname] : [];
+  const root = rootDomain && rootDomain !== hostname && Array.isArray(map[rootDomain]) ? map[rootDomain] : [];
+  const combined = [...exact, ...root];
+  if (!combined.length) {
+    return [];
+  }
+  const normalized = combined.map((entry) => ({
+    sourceUrl: typeof entry?.sourceUrl === "string" ? entry.sourceUrl : "",
+    assetUrl: typeof entry?.assetUrl === "string" ? entry.assetUrl : "",
+    pattern: typeof entry?.pattern === "string" ? entry.pattern : "",
+    matchSnippet: typeof entry?.matchSnippet === "string" ? entry.matchSnippet : "",
+    contextSnippet: typeof entry?.contextSnippet === "string" ? entry.contextSnippet : "",
+    encodedSnippet: typeof entry?.encodedSnippet === "string" ? entry.encodedSnippet : "",
+    detectedAt: typeof entry?.detectedAt === "string" ? entry.detectedAt : "",
+  }));
+  const seen = new Set();
+  const deduped = normalized.filter((entry) => {
+    const key = `${entry.pattern}|${entry.matchSnippet}|${entry.sourceUrl}|${entry.detectedAt}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+  return deduped.sort((a, b) => {
+    const aTime = new Date(a.detectedAt || 0).getTime();
+    const bTime = new Date(b.detectedAt || 0).getTime();
+    return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+  });
+}
+
+async function resolveInspectedHost() {
+  if (!chrome?.tabs?.query) {
+    return state.inspectedHost || null;
+  }
+  return new Promise((resolve) => {
+    try {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const tab = Array.isArray(tabs) ? tabs[0] : null;
+        if (tab?.url) {
+          try {
+            const { hostname } = new URL(tab.url);
+            resolve(hostname || null);
+            return;
+          } catch (error) {
+            // Fall through to resolve previous host.
+          }
+        }
+        resolve(state.inspectedHost || null);
+      });
+    } catch (error) {
+      resolve(state.inspectedHost || null);
+    }
+  });
+}
+
+async function refreshDetectionSnapshots() {
+  const host = await resolveInspectedHost();
+  const projectId = state.connection?.projectId ? sanitize(state.connection.projectId) : "";
+  const [assetDetections, leakDetections] = await Promise.all([
+    projectId ? loadAssetDetectionsForProject(projectId) : [],
+    host ? loadLeakDetectionsForHost(host) : [],
+  ]);
+  state.assetDetections = assetDetections;
+  state.leakDetections = leakDetections;
+  state.inspectedHost = host;
+  updateReportButtonState();
+}
+
+function hasSupabaseContext() {
+  return Boolean(state.connection?.projectId && state.connection?.apiKey && state.baseUrl);
+}
+
+function hasDetectionFindings() {
+  const assetCount = Array.isArray(state.assetDetections) ? state.assetDetections.length : 0;
+  const leakCount = Array.isArray(state.leakDetections) ? state.leakDetections.length : 0;
+  return assetCount > 0 || leakCount > 0;
+}
+
+function deriveLeakRiskLevel(leakDetections) {
+  if (!Array.isArray(leakDetections) || !leakDetections.length) {
+    return null;
+  }
+  let risk = "medium";
+  leakDetections.forEach((detection) => {
+    const haystack = `${detection.pattern || ""} ${detection.matchSnippet || ""}`.toLowerCase();
+    if (/service|secret|token|aws|github|slack|twilio|discord|private|bearer/.test(haystack)) {
+      risk = "critical";
+    } else if (/key|api|auth/.test(haystack) && risk !== "critical") {
+      risk = "high";
+    }
+  });
+  return risk;
+}
+
 async function fetchOpenApi() {
   const url = `${state.baseUrl.replace(/\/$/, "")}/`;
   const headers = buildHeaders(state.connection, "application/openapi+json;version=3.0");
@@ -244,7 +374,8 @@ function updateReportButtonState({ busy = false } = {}) {
     return;
   }
   dom.reportBtn.classList.remove("is-busy");
-  const shouldDisable = !state.baseUrl || !(state.tables && state.tables.length);
+  const hasTables = Array.isArray(state.tables) && state.tables.length > 0;
+  const shouldDisable = !(hasTables || hasDetectionFindings());
   dom.reportBtn.disabled = shouldDisable;
 }
 
@@ -527,6 +658,7 @@ async function connectWithConnection(connection, { triggeredBy = "user" } = {}) 
     console.error(error);
     setStatus(error.message, "error");
   } finally {
+    await refreshDetectionSnapshots();
     dom.connectBtn.disabled = false;
     dom.reloadBtn.disabled = false;
     updateReportButtonState();
@@ -655,8 +787,20 @@ async function analyzeTableSecurity(table) {
   };
 }
 
-function buildSecurityRecommendations({ accessibleTables, sensitiveTables, assetDetections, keyRole, bearerRole }) {
+function buildSecurityRecommendations({
+  accessibleTables,
+  sensitiveTables,
+  assetDetections,
+  leakDetections,
+  keyRole,
+  bearerRole,
+  inspectedHost,
+}) {
   const recommendations = [];
+  const leaks = Array.isArray(leakDetections) ? leakDetections : [];
+  const leakRisk = deriveLeakRiskLevel(leaks);
+  const leakSeverity = leakRisk === "critical" ? "critical" : leakRisk === "high" ? "high" : "medium";
+  const locationLabel = inspectedHost || "the inspected site";
   const exposedNames = formatList(accessibleTables.map((item) => item.name));
   const sensitiveNames = formatList(sensitiveTables.map((item) => item.name));
   const sensitiveColumnsCombined = Array.from(
@@ -667,6 +811,18 @@ function buildSecurityRecommendations({ accessibleTables, sensitiveTables, asset
   const hasServiceAsset = Array.isArray(assetDetections)
     ? assetDetections.some((item) => /service/i.test(item.keyType || "") || /service_role/i.test(item.keyLabel || ""))
     : false;
+
+  if (leaks.length) {
+    const summary = leaks.length === 1
+      ? "1 potential API credential leak was detected."
+      : `${leaks.length} potential API credential leaks were detected.`;
+    recommendations.push({
+      id: "api-leaks",
+      title: "Rotate leaked API credentials",
+      detail: `${summary} Review detections for ${locationLabel}, revoke the exposed secrets, and remove them from client-side bundles.`,
+      severity: leakRisk ? leakSeverity : "high",
+    });
+  }
 
   if (accessibleTables.length) {
     recommendations.push({
@@ -726,14 +882,19 @@ function buildSecurityRecommendations({ accessibleTables, sensitiveTables, asset
 async function buildSecurityReport() {
   const createdAt = new Date().toISOString();
   const reportId = generateLocalId("sbde_report");
+  const assetDetections = Array.isArray(state.assetDetections) ? state.assetDetections : [];
+  const leakDetections = Array.isArray(state.leakDetections) ? state.leakDetections : [];
+
+  if (!hasSupabaseContext()) {
+    return buildLeakOnlyReport({ reportId, createdAt, assetDetections, leakDetections });
+  }
+
   const apiKeyClaims = decodeJwtClaims(state.connection.apiKey);
   const bearerClaims = state.connection.bearer && state.connection.bearer !== state.connection.apiKey
     ? decodeJwtClaims(state.connection.bearer)
     : null;
   const keyRole = inferRoleFromClaims(apiKeyClaims);
   const bearerRole = inferRoleFromClaims(bearerClaims);
-
-  const assetDetections = await loadAssetDetectionsForProject(state.connection.projectId);
 
   const findings = [];
   for (const table of state.tables) {
@@ -759,6 +920,15 @@ async function buildSecurityReport() {
     keyFindings.push(summaryLabel);
   }
 
+  const leakRisk = deriveLeakRiskLevel(leakDetections) || "high";
+  if (leakDetections.length) {
+    riskLevel = elevateRiskLevel(riskLevel, leakRisk);
+    const leakSummary = leakDetections.length === 1
+      ? "1 potential API credential leak detected in static assets."
+      : `${leakDetections.length} potential API credential leaks detected in static assets.`;
+    keyFindings.push(leakSummary);
+  }
+
   if (accessibleTables.length) {
     const accessRisk = keyRole === "anon" || bearerRole === "anon" ? "critical" : "high";
     riskLevel = elevateRiskLevel(riskLevel, accessRisk);
@@ -776,8 +946,10 @@ async function buildSecurityReport() {
     accessibleTables,
     sensitiveTables,
     assetDetections,
+    leakDetections,
     keyRole,
     bearerRole,
+    inspectedHost: state.inspectedHost,
   });
 
   return {
@@ -803,14 +975,87 @@ async function buildSecurityReport() {
     },
     findings,
     assetDetections,
+    leakDetections,
+    recommendations,
+  };
+}
+
+function buildLeakOnlyReport({ reportId, createdAt, assetDetections, leakDetections }) {
+  let riskLevel = "low";
+  const keyFindings = [];
+
+  if (Array.isArray(assetDetections) && assetDetections.length) {
+    const serviceExposure = assetDetections.some((item) => /service/i.test(item.keyType || "") || /service_role/i.test(item.keyLabel || ""));
+    riskLevel = elevateRiskLevel(riskLevel, serviceExposure ? "critical" : "high");
+    const summaryLabel = assetDetections.length === 1
+      ? "1 exposed Supabase credential discovered in static assets."
+      : `${assetDetections.length} exposed Supabase credentials discovered in static assets.`;
+    keyFindings.push(summaryLabel);
+  }
+
+  const leakRisk = deriveLeakRiskLevel(leakDetections) || "high";
+  if (Array.isArray(leakDetections) && leakDetections.length) {
+    riskLevel = elevateRiskLevel(riskLevel, leakRisk);
+    const leakSummary = leakDetections.length === 1
+      ? "1 potential API credential leak detected in static assets."
+      : `${leakDetections.length} potential API credential leaks detected in static assets.`;
+    keyFindings.push(leakSummary);
+  }
+
+  if (!keyFindings.length) {
+    keyFindings.push("No Supabase tables were analyzed; report generated from leak detections only.");
+  }
+
+  const projectLabel = state.connection.projectId || state.inspectedHost || "Unknown project";
+  const schemaLabel = state.connection.schema || "n/a";
+  const baseUrl = state.baseUrl || (state.inspectedHost ? `https://${state.inspectedHost}` : "");
+
+  const recommendations = buildSecurityRecommendations({
+    accessibleTables: [],
+    sensitiveTables: [],
+    assetDetections,
+    leakDetections,
+    keyRole: null,
+    bearerRole: null,
+    inspectedHost: state.inspectedHost,
+  });
+
+  return {
+    id: reportId,
+    createdAt,
+    projectId: projectLabel,
+    schema: schemaLabel,
+    baseUrl,
+    connectionSummary: null,
+    summary: {
+      riskLevel,
+      tableCount: 0,
+      accessibleCount: 0,
+      protectedCount: 0,
+      unknownCount: 0,
+      keyFindings,
+    },
+    findings: [],
+    assetDetections,
+    leakDetections,
     recommendations,
   };
 }
 
 async function handleGenerateReport(event) {
   event?.preventDefault();
-  if (!state.baseUrl || !state.tables.length) {
-    setStatus("Connect and load tables before generating a report.", "error");
+  await refreshDetectionSnapshots();
+
+  const hasSupabase = hasSupabaseContext();
+  const hasDetections = hasDetectionFindings();
+  const hasTables = Array.isArray(state.tables) && state.tables.length > 0;
+
+  if (!hasSupabase && !hasDetections) {
+    setStatus("Connect to Supabase or capture leak detections before generating a report.", "error");
+    return;
+  }
+  if (hasSupabase && !hasTables && !hasDetections) {
+    setStatus("Load Supabase tables or capture leak detections before generating a report.", "error");
     return;
   }
 
@@ -909,6 +1154,7 @@ async function restoreFromStorage() {
     } else {
       setStatus("Idle", "idle");
     }
+    await refreshDetectionSnapshots();
   } catch (error) {
     console.error("Storage restore failed", error);
   }
@@ -928,6 +1174,7 @@ async function clearSavedConnection() {
 
   renderTablesList();
   setActiveTable(null);
+  await refreshDetectionSnapshots();
   setStatus("Cleared saved credentials.", "success");
 }
 
@@ -953,6 +1200,7 @@ async function init() {
   renderTablesList();
   await restoreFromStorage();
   initEventListeners();
+  await refreshDetectionSnapshots();
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") {
@@ -980,7 +1228,26 @@ async function init() {
       }
       state.connectionWriteSource = null;
     }
+    if (changes[ASSET_DETECTIONS_KEY] || changes[LEAK_DETECTIONS_KEY]) {
+      refreshDetectionSnapshots();
+    }
   });
+
+  if (chrome?.tabs?.onActivated) {
+    chrome.tabs.onActivated.addListener(() => {
+      refreshDetectionSnapshots();
+    });
+  }
+  if (chrome?.tabs?.onUpdated) {
+    chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+      if (!tab?.active) {
+        return;
+      }
+      if (changeInfo.status === "complete" || changeInfo.url) {
+        refreshDetectionSnapshots();
+      }
+    });
+  }
 }
 
 init();

@@ -140,6 +140,9 @@
       .request-nav-item.asset .nav-method {
         color: #fbbf24;
       }
+      .request-nav-item.leak .nav-method {
+        color: #f87171;
+      }
       .nav-top {
         width: 100%;
         display: flex;
@@ -199,6 +202,9 @@
       .request-card.asset {
         border-left: 3px solid rgba(248, 180, 0, 0.6);
       }
+      .request-card.leak {
+        border-left: 3px solid rgba(248, 113, 113, 0.65);
+      }
       .request-card.sending {
         border-color: #38bdf8;
         box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.4);
@@ -216,6 +222,9 @@
       }
       .request-card.asset .request-method {
         color: #fbbf24;
+      }
+      .request-card.leak .request-method {
+        color: #f87171;
       }
       .request-url {
         font-family: "JetBrains Mono", "Fira Mono", "SFMono-Regular", monospace;
@@ -287,15 +296,16 @@
         <button id="clear-btn" type="button">Clear</button>
       </div>
     </header>
-    <div id="status">Requests will appear as the page makes network calls.</div>
+    <div id="status">Requests and detections will appear as the page makes network calls.</div>
     <div class="tab-bar">
       <button class="tab-btn active" type="button" data-tab="requests">Requests (0)</button>
       <button class="tab-btn" type="button" data-tab="assets">Assets (0)</button>
+      <button class="tab-btn" type="button" data-tab="leaks">Leaks (0)</button>
     </div>
     <div class="panel-layout">
       <aside id="request-list"></aside>
       <section id="request-detail">
-        <div class="empty-state detail-empty">Select a request or asset to see its details.</div>
+        <div class="empty-state detail-empty">Select a request, asset, or leak to see its details.</div>
       </section>
     </div>
     <template id="nav-item-template">
@@ -319,6 +329,6 @@
         <div class="header-list"></div>
       </div>
     </template>
-    <script src="devtools_panel.js"></script>
+    <script type="module" src="devtools_panel.js"></script>
   </body>
 </html>

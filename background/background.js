@@ -8,6 +8,9 @@ const REPORT_TTL_MS = 1000 * 60 * 60 * 24;
 const ASSET_DETECTIONS_KEY = "sbde_asset_detections";
 const ASSET_DETECTIONS_MAX_PER_PROJECT = 25;
 const ASSET_DETECTION_TTL_MS = 1000 * 60 * 60 * 24;
+const LEAK_DETECTIONS_KEY = "sbde_generic_leaks";
+const LEAK_DETECTIONS_MAX_PER_HOST = 25;
+const LEAK_DETECTION_TTL_MS = 1000 * 60 * 60 * 24;
 
 const tabDetectionCache = new Map();
 const panelOpenTimestamps = new Map();
@@ -191,6 +194,82 @@ async function recordAssetDetectionSummary(summary) {
 
   map[normalized.projectId] = filtered;
   await chrome.storage.local.set({ [ASSET_DETECTIONS_KEY]: map });
+
+  return normalized;
+}
+
+function normalizeLeakDetection(summary) {
+  if (!summary || typeof summary !== "object") {
+    throw new Error("Invalid leak detection payload.");
+  }
+
+  const sourceUrl = typeof summary.sourceUrl === "string" ? summary.sourceUrl.trim() : "";
+  const assetUrl = typeof summary.assetUrl === "string" ? summary.assetUrl.trim() : "";
+  const pattern = typeof summary.pattern === "string" ? summary.pattern : "Unknown pattern";
+  const matchSnippet = typeof summary.matchSnippet === "string" ? summary.matchSnippet : "";
+  const contextSnippet = typeof summary.contextSnippet === "string" ? summary.contextSnippet : "";
+  const encodedSnippet = typeof summary.encodedSnippet === "string" ? summary.encodedSnippet : "";
+  const detectedAt = typeof summary.detectedAt === "string" ? summary.detectedAt : new Date().toISOString();
+
+  let host = "unknown";
+  const hostSource = sourceUrl || assetUrl;
+  if (hostSource) {
+    try {
+      host = new URL(hostSource).hostname || host;
+    } catch (error) {
+      host = hostSource;
+    }
+  }
+
+  return {
+    host,
+    sourceUrl,
+    assetUrl,
+    pattern,
+    matchSnippet,
+    contextSnippet,
+    encodedSnippet,
+    detectedAt,
+  };
+}
+
+async function recordLeakDetectionSummary(summary) {
+  const normalized = normalizeLeakDetection(summary);
+  const stored = await chrome.storage.local.get([LEAK_DETECTIONS_KEY]);
+  const current = stored?.[LEAK_DETECTIONS_KEY];
+  const map = current && typeof current === "object" ? { ...current } : {};
+  const now = Date.now();
+
+  const existing = Array.isArray(map[normalized.host]) ? map[normalized.host] : [];
+  const filtered = existing.filter((item) => {
+    if (!item || typeof item !== "object") return false;
+    const age = now - new Date(item.detectedAt || 0).getTime();
+    if (Number.isFinite(age) && age > LEAK_DETECTION_TTL_MS) {
+      return false;
+    }
+    return !(
+      item.sourceUrl === normalized.sourceUrl &&
+      item.pattern === normalized.pattern &&
+      item.matchSnippet === normalized.matchSnippet
+    );
+  });
+
+  filtered.unshift({
+    sourceUrl: normalized.sourceUrl,
+    assetUrl: normalized.assetUrl,
+    pattern: normalized.pattern,
+    matchSnippet: normalized.matchSnippet,
+    contextSnippet: normalized.contextSnippet,
+    encodedSnippet: normalized.encodedSnippet,
+    detectedAt: normalized.detectedAt,
+  });
+
+  if (filtered.length > LEAK_DETECTIONS_MAX_PER_HOST) {
+    filtered.length = LEAK_DETECTIONS_MAX_PER_HOST;
+  }
+
+  map[normalized.host] = filtered;
+  await chrome.storage.local.set({ [LEAK_DETECTIONS_KEY]: map });
 
   return normalized;
 }
@@ -392,6 +471,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     recordAssetDetectionSummary(message.payload)
       .then(() => sendResponse?.({ ok: true }))
       .catch((error) => sendResponse?.({ ok: false, reason: error instanceof Error ? error.message : String(error || "Failed to persist detection.") }));
+    return true;
+  }
+
+  if (message?.type === "SBDE_REGISTER_GENERIC_LEAK" && message?.payload) {
+    recordLeakDetectionSummary(message.payload)
+      .then(() => sendResponse?.({ ok: true }))
+      .catch((error) =>
+        sendResponse?.({
+          ok: false,
+          reason: error instanceof Error ? error.message : String(error || "Failed to persist leak detection."),
+        })
+      );
     return true;
   }
 
