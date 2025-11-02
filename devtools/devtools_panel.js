@@ -147,6 +147,9 @@ chrome.devtools.inspectedWindow.eval("location.href", (result, exceptionInfo) =>
 
 chrome.devtools.network.onNavigated.addListener((url) => {
   updatePageScopeFromUrl(url);
+  // Clear detection caches on navigation to allow re-scanning on page reload
+  staticDetectionCache.clear();
+  leakDetectionCache.clear();
 });
 
 function generateId() {
