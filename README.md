@@ -7,20 +7,16 @@ SupaExplorer enables security reviewers, red-teamers, and developers to inspect 
 
 ```mermaid
 flowchart TD
-    A0["SupaExplorer Core (Background Service Worker)
-"]
-    A1["Supabase Request Detection
-"]
-    A2["Connection & State Management
-"]
-    A3["Side Panel UI (Connection & Table Browser)
-"]
-    A4["In-Page Explorer Overlay
-"]
-    A5["DevTools Integration
-"]
-    A6["Security Report Generation
-"]
+    A0["SupaExplorer Core<br/>(Background Service Worker)"]
+    A1["Supabase Request Detection"]
+    A2["Connection & State Management"]
+    A3["Side Panel UI<br/>(Connection & Table Browser)"]
+    A4["In-Page Explorer Overlay"]
+    A5["DevTools Integration"]
+    A6["Security Report Generation"]
+    A7["API Key Leak Scanner"]
+    A8["Network Response Interceptor"]
+    
     A1 -- "Reports detected requests" --> A0
     A0 -- "Manages connection state" --> A2
     A5 -- "Sends credentials to" --> A0
@@ -30,6 +26,11 @@ flowchart TD
     A0 -- "Launches" --> A4
     A0 -- "Opens" --> A3
     A2 -- "Stores report data for" --> A6
+    
+    A8 -- "Captures responses<br/>(scripts, JSON, HTML)" --> A7
+    A7 -- "Scans for 30+ API key patterns" --> A5
+    A5 -- "Displays leaks in<br/>DevTools Leaks tab" --> A0
+    A0 -- "Monitors network via<br/>webRequest API" --> A8
 ```
 
 Review the end-to-end flow in the [architecture diagram](./architecture-diagram.md).
