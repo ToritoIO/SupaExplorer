@@ -15,6 +15,12 @@ flowchart TD
 
   subgraph DevTools["DevTools panel"]
     devtools["devtools_panel.html/js<br/>captures & forwards credentials"]
+    leaksTab["Leaks tab<br/>displays detected API key leaks"]
+  end
+
+  subgraph LeakDetection["Leak Detection System"]
+    scanner["shared/leak_scanner.js<br/>pattern matching for 30+ services"]
+    interceptor["webRequest listener<br/>captures network responses"]
   end
 
   subgraph UI["Side panel & reports"]
@@ -24,6 +30,7 @@ flowchart TD
 
   storage[(chrome.storage.local<br/>connection + report data)]
   supabase["Supabase REST endpoints"]
+  network["Network responses<br/>(scripts, JSON, HTML)"]
 
   detector -- "SBDE_SUPABASE_REQUEST<br/>(apiKey, URL, schema)" --> bg
   devtools -- "SBDE_APPLY_CONNECTION" --> bg
@@ -45,4 +52,11 @@ flowchart TD
   supabase -. "webRequest headers<br/>https://*.supabase.co" .-> bg
   supabase -. "network events via devtools<br/>onRequestFinished" .-> devtools
   detector -. "page fetch/XHR flow" .-> supabase
+  
+  network -- "captured responses" --> interceptor
+  interceptor -- "scan content" --> scanner
+  scanner -- "detected leaks<br/>(AWS, Stripe, OpenAI, etc.)" --> devtools
+  devtools -- "display in Leaks tab" --> leaksTab
+  bg -- "webRequest API" --> interceptor
+  devtools -. "onRequestFinished events" .-> scanner
 ```
