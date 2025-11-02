@@ -33,6 +33,7 @@ const state = {
   assetDetections: [],
   leakDetections: [],
   inspectedHost: null,
+  isGeneratingReport: false,
 };
 
 const dom = {
@@ -368,7 +369,7 @@ function sendMessageAsync(message) {
 
 function updateReportButtonState({ busy = false } = {}) {
   if (!dom.reportBtn) return;
-  if (busy) {
+  if (busy || state.isGeneratingReport) {
     dom.reportBtn.disabled = true;
     dom.reportBtn.classList.add("is-busy");
     return;
@@ -1044,6 +1045,11 @@ function buildLeakOnlyReport({ reportId, createdAt, assetDetections, leakDetecti
 
 async function handleGenerateReport(event) {
   event?.preventDefault();
+  
+  if (state.isGeneratingReport) {
+    return;
+  }
+  
   await refreshDetectionSnapshots();
 
   const hasSupabase = hasSupabaseContext();
@@ -1059,6 +1065,7 @@ async function handleGenerateReport(event) {
     return;
   }
 
+  state.isGeneratingReport = true;
   updateReportButtonState({ busy: true });
   setStatus("Building security report…", "progress");
 
@@ -1074,6 +1081,7 @@ async function handleGenerateReport(event) {
     const message = error instanceof Error ? error.message : String(error || "Security report failed.");
     setStatus(message, "error");
   } finally {
+    state.isGeneratingReport = false;
     updateReportButtonState();
   }
 }
