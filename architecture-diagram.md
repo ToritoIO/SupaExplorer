@@ -4,6 +4,7 @@
 flowchart TD
   subgraph Tab["Active tab (page context)"]
     detector["content/detector.js → detector_inject.js<br/>hooks fetch/XHR to Supabase"]
+    staticScanner["content/static_scanner.js<br/>scans inline/external JS for hardcoded Supabase credentials"]
     bubble["content/bubble.js<br/>shows detection bubble"]
     overlay["content/content.js<br/>overlay bridge"]
     explorer["explorer/explorer.html/js<br/>modal explorer UI"]
@@ -19,7 +20,7 @@ flowchart TD
   end
 
   subgraph LeakDetection["Leak Detection System"]
-    scanner["shared/leak_scanner.js<br/>pattern matching for 30+ services"]
+    scanner["shared/leak_scanner.js<br/>pattern matching for 15+ services"]
     interceptor["webRequest listener<br/>captures network responses"]
   end
 
@@ -33,6 +34,7 @@ flowchart TD
   network["Network responses<br/>(scripts, JSON, HTML)"]
 
   detector -- "SBDE_SUPABASE_REQUEST<br/>(apiKey, URL, schema)" --> bg
+  staticScanner -- "SBDE_REGISTER_ASSET_DETECTION<br/>SBDE_SUPABASE_REQUEST" --> bg
   devtools -- "SBDE_APPLY_CONNECTION" --> bg
   devtools -- "SBDE_OPEN_SIDE_PANEL" --> bg
   bg -->|"store connection + meta"| storage

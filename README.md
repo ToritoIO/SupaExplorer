@@ -28,7 +28,7 @@ flowchart TD
     A2 -- "Stores report data for" --> A6
     
     A8 -- "Captures responses<br/>(scripts, JSON, HTML)" --> A7
-    A7 -- "Scans for 30+ API key patterns" --> A5
+    A7 -- "Scans for 15+ API key patterns" --> A5
     A5 -- "Displays leaks in<br/>DevTools Leaks tab" --> A0
     A0 -- "Monitors network via<br/>webRequest API" --> A8
 ```
@@ -55,8 +55,8 @@ Click on the image to watch the video on YouTube.
 - **Security reports**: Generates printable reports summarizing table exposure, row counts, and recommended RLS fixes.
 
 ### API Key Leak Detection
-- **Real-time scanning** of network responses (scripts, HTML, JSON) for exposed API keys from 15 popular services.
-- **Pattern recognition** for AWS Access Keys, Stripe API keys, OpenAI tokens, GitHub Personal Access Tokens, SendGrid, Twilio, Slack, and many more.
+- **Real-time scanning** of network responses (scripts, HTML, JSON) for exposed API keys from 15+ popular services.
+- **Pattern recognition** for AWS Access Keys, Stripe API keys (3 types), OpenAI tokens, GitHub Personal Access Tokens, Google API keys, SendGrid, Twilio, Slack, Discord, Heroku, and generic API key/secret patterns.
 - **Smart filtering** reduces false positives:
   - Automatically excludes CSS/font files by default
   - Detects and skips base64-encoded font/image data URIs
@@ -97,7 +97,7 @@ As your browser loads pages with the DevTools panel open, SupaExplorer's scanner
 ### API Key Leak Monitoring
 **DevTools scanning.** With the SupaExplorer DevTools panel open, network traffic is automatically scanned for exposed API keys—no configuration needed.  
 **Leak log.** Switch to the "Leaks" tab in the DevTools panel to see all detected leaks with matched values, pattern types, context snippets, and source URLs.  
-**Pattern library.** The scanner recognizes 15 API key patterns including Supabase, AWS, Stripe, OpenAI, GitHub, Google, SendGrid, Twilio, Slack, Discord, Heroku, and more.  
+**Pattern library.** The scanner recognizes 15+ API key patterns including AWS, Stripe (3 types), OpenAI, GitHub, Google, SendGrid, Twilio, Slack, Discord, Heroku, and generic API key/secret patterns.  
 **False positive filtering.** The scanner intelligently filters common false positives:
   - CSS/SCSS/font files are excluded by default
   - Base64-encoded fonts and images in data URIs are skipped
