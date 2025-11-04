@@ -150,6 +150,13 @@ chrome.devtools.network.onNavigated.addListener((url) => {
   // Clear detection caches on navigation to allow re-scanning on page reload
   staticDetectionCache.clear();
   leakDetectionCache.clear();
+  // Clear all stored detections from state to start fresh on new page
+  state.requests = [];
+  state.selectedId = null;
+  state.activeTab = "requests";
+  renderRequests();
+  // Reload detections for new page
+  setTimeout(() => loadStoredAssetDetections(), 500);
 });
 
 function generateId() {
@@ -1150,7 +1157,92 @@ if (dom.authFilterCheckbox) {
   });
 }
 
+// Load stored asset detections from the background script (only from current page)
+async function loadStoredAssetDetections() {
+  try {
+    const ASSET_DETECTIONS_KEY = "sbde_asset_detections";
+    const result = await chrome.storage.local.get([ASSET_DETECTIONS_KEY]);
+    const storedMap = result?.[ASSET_DETECTIONS_KEY];
+    
+    if (!storedMap || typeof storedMap !== 'object') {
+      return;
+    }
+
+    // Convert stored detections to entries, but only for current page scope
+    let loadedCount = 0;
+    let skippedCount = 0;
+    
+    Object.values(storedMap).forEach(projectDetections => {
+      if (!Array.isArray(projectDetections)) return;
+      
+      projectDetections.forEach(detection => {
+        // Only load detections from the current page scope
+        if (!isUrlInPageScope(detection.assetUrl)) {
+          skippedCount++;
+          return;
+        }
+
+        // Skip if no full API key available
+        if (!detection.apiKey || detection.apiKey.length < 20) {
+          console.debug('[SBDE] Skipping detection - no full API key:', detection.assetUrl);
+          skippedCount++;
+          return;
+        }
+
+        const cacheKey = `${detection.assetUrl}|${detection.supabaseUrl}|${detection.apiKey}`;
+        if (staticDetectionCache.has(cacheKey)) {
+          return;
+        }
+        staticDetectionCache.add(cacheKey);
+        loadedCount++;
+
+        // Create a mock request object for createStaticEntry
+        const mockRequest = {
+          request: { url: detection.assetUrl },
+          time: 0,
+          initiator: { type: 'static-scan' }
+        };
+
+        // Convert stored detection to full detection format
+        const fullDetection = {
+          supabaseUrl: detection.supabaseUrl,
+          apiKey: detection.apiKey, // Use full key
+          keyLabel: detection.keyLabel,
+          keyType: detection.keyType,
+          assetUrl: detection.assetUrl
+        };
+
+        const entry = createStaticEntry(mockRequest, fullDetection);
+        state.requests.push(entry);
+      });
+    });
+
+    console.debug(`[SBDE] Loaded ${loadedCount} stored detections, skipped ${skippedCount} (out of scope or missing full key)`);
+    
+    if (state.requests.length > 0) {
+      renderRequests();
+    }
+  } catch (error) {
+    console.warn('[SBDE] Failed to load stored asset detections:', error);
+  }
+}
+
+// Listen for storage changes to detect new asset detections in real-time
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local') return;
+  
+  const ASSET_DETECTIONS_KEY = "sbde_asset_detections";
+  if (changes[ASSET_DETECTIONS_KEY]) {
+    console.debug('[SBDE DevTools] Asset detections updated in storage');
+    // Clear cache and reload to pick up new detections
+    staticDetectionCache.clear();
+    state.requests = state.requests.filter(entry => entry.category !== 'assets');
+    loadStoredAssetDetections();
+  }
+});
+
 renderRequests();
+loadStoredAssetDetections();
 chrome.devtools.network.onRequestFinished.addListener(handleRequestFinished);
 
 async function openSidePanel() {

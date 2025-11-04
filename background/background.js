@@ -149,6 +149,7 @@ function normalizeAssetDetection(summary) {
   const keyType = typeof summary.keyType === "string" ? summary.keyType : "";
   const keyLabel = typeof summary.keyLabel === "string" ? summary.keyLabel : "";
   const apiKeySnippet = typeof summary.apiKeySnippet === "string" ? summary.apiKeySnippet : "";
+  const apiKey = typeof summary.apiKey === "string" ? summary.apiKey : ""; // Store full key for DevTools
 
   return {
     projectId,
@@ -157,6 +158,7 @@ function normalizeAssetDetection(summary) {
     keyType,
     keyLabel,
     apiKeySnippet,
+    apiKey,
     detectedAt,
   };
 }
@@ -185,6 +187,7 @@ async function recordAssetDetectionSummary(summary) {
     keyType: normalized.keyType,
     keyLabel: normalized.keyLabel,
     apiKeySnippet: normalized.apiKeySnippet,
+    apiKey: normalized.apiKey, // Include full key for DevTools
     detectedAt: normalized.detectedAt,
   });
 

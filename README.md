@@ -46,12 +46,13 @@ Click on the image to watch the video on YouTube.
 ## Core Capabilities
 
 ### Supabase Security Testing
-- Detects Supabase traffic by instrumenting `fetch`, `XMLHttpRequest`, and `chrome.webRequest`, then caches the live project ID, schema, and API keys it sees.
-- While the DevTools panel is open, scans captured script/JSON responses for embedded Supabase URLs and JWT API keys—even if no request has fired yet.
-- Ships a Chrome side panel for browsing tables, checking row counts, and spotting RLS denial responses with at-a-glance status.
-- Provides an in-page explorer overlay for quick select/insert/update/delete experiments that reuse the exact headers the page sent.
-- Adds a DevTools panel that lists recent Supabase requests and lets you push captured credentials straight into the side panel.
-- Generates a printable security report that summarizes table exposure, row counts, and recommended RLS fixes.
+- **Runtime detection**: Instruments `fetch`, `XMLHttpRequest`, and `chrome.webRequest` to capture live Supabase API calls and extract project IDs, schemas, and API keys.
+- **Static code scanning**: Automatically scans inline `<script>` tags and external JavaScript files (including minified bundles) for hardcoded Supabase URLs and JWT tokens—detects credentials even before any API request is made.
+- **JWT validation**: Verifies detected tokens are genuine Supabase keys by decoding and validating JWT payloads for Supabase-specific fields.
+- **Side panel browser**: Browse tables, check row counts, and spot RLS denial responses with at-a-glance status indicators.
+- **In-page explorer overlay**: Quick select/insert/update/delete experiments that reuse the exact headers the page sent.
+- **DevTools integration**: Lists recent Supabase requests and lets you push captured credentials straight into the side panel.
+- **Security reports**: Generates printable reports summarizing table exposure, row counts, and recommended RLS fixes.
 
 ### API Key Leak Detection
 - **Real-time scanning** of network responses (scripts, HTML, JSON) for exposed API keys from 30+ popular services.
@@ -68,7 +69,13 @@ Click on the image to watch the video on YouTube.
 ## How It Works End-to-End
 
 ### Supabase Testing Flow
-When a page makes a Supabase call, the background service worker normalizes the credentials, stores them in `chrome.storage.local`, and prompts you via the floating SupaExplorer bubble. Opening the side panel hydrates the connection form, fetches the PostgREST OpenAPI schema, enumerates tables, and issues optional row-count probes so you can see where policies are tight or overly permissive. Double-clicking a table (or using the "Open Explorer" button) loads the full-screen overlay where you can browse data, run filtered queries, and test writes. Navigating away from the site—or losing the keys—automatically clears the cached connection to prevent stale or leaked credentials.
+SupaExplorer detects Supabase credentials through two mechanisms:
+
+1. **Static scanning** (automatic on page load): Scans inline scripts and external JavaScript files for hardcoded Supabase URLs and JWT tokens. This happens immediately when a page loads, catching credentials in bundled/minified code (like Webpack/Vite bundles) before any API call is made.
+
+2. **Runtime detection** (during API calls): When a page makes a Supabase call, the extension intercepts it via instrumented `fetch`, `XMLHttpRequest`, and `chrome.webRequest`, extracting credentials from request headers.
+
+Once credentials are detected, the background service worker normalizes them, stores them in `chrome.storage.local`, and prompts you via the floating SupaExplorer bubble. Opening the side panel hydrates the connection form, fetches the PostgREST OpenAPI schema, enumerates tables, and issues optional row-count probes so you can see where policies are tight or overly permissive. Double-clicking a table (or using the "Open Explorer" button) loads the full-screen overlay where you can browse data, run filtered queries, and test writes. Navigating away from the site—or losing the keys—automatically clears the cached connection to prevent stale or leaked credentials.
 
 ### API Key Leak Detection Flow
 As your browser loads pages with the DevTools panel open, SupaExplorer's scanner intercepts network responses (JavaScript bundles, API responses, HTML documents) and runs pattern matching against known API key formats. When a leak is detected, it appears immediately in the "Leaks" tab of the DevTools panel with full details about the finding, including the matched value, pattern type, surrounding context, and source URL. All scanning happens locally—no data leaves your machine.

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "SupaExplorer - Supabase & API Key Scanner",
   "description": "Audit Supabase RLS policies and detect exposed API keys (AWS, Stripe, OpenAI, GitHub & 30+ more) in web applications.",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "icons": {
     "16": "assets/icons/icon16.png",
     "32": "assets/icons/icon32.png",
@@ -42,6 +42,15 @@
         "content/detector.js"
       ],
       "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content/static_scanner.js"
+      ],
+      "run_at": "document_idle"
     },
     {
       "matches": [
