@@ -111,8 +111,9 @@ function isUrlInPageScope(url) {
   if (!url || typeof url !== "string") {
     return false;
   }
+  // Strict check: if pageScope isn't set yet, don't match anything
   if (!pageScope.hostname && !pageScope.rootDomain) {
-    return true;
+    return false;
   }
   try {
     const { hostname } = new URL(url);
@@ -142,6 +143,8 @@ chrome.devtools.inspectedWindow.eval("location.href", (result, exceptionInfo) =>
   }
   if (typeof result === "string" && result) {
     updatePageScopeFromUrl(result);
+    // Now that pageScope is set, load stored detections with proper filtering
+    loadStoredAssetDetections();
   }
 });
 
@@ -1242,7 +1245,8 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 renderRequests();
-loadStoredAssetDetections();
+// Don't load stored detections immediately - wait for pageScope to be initialized first
+// (see chrome.devtools.inspectedWindow.eval callback above)
 chrome.devtools.network.onRequestFinished.addListener(handleRequestFinished);
 
 async function openSidePanel() {

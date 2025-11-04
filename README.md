@@ -55,7 +55,7 @@ Click on the image to watch the video on YouTube.
 - **Security reports**: Generates printable reports summarizing table exposure, row counts, and recommended RLS fixes.
 
 ### API Key Leak Detection
-- **Real-time scanning** of network responses (scripts, HTML, JSON) for exposed API keys from 30+ popular services.
+- **Real-time scanning** of network responses (scripts, HTML, JSON) for exposed API keys from 15 popular services.
 - **Pattern recognition** for AWS Access Keys, Stripe API keys, OpenAI tokens, GitHub Personal Access Tokens, SendGrid, Twilio, Slack, and many more.
 - **Smart filtering** reduces false positives:
   - Automatically excludes CSS/font files by default
@@ -83,7 +83,7 @@ As your browser loads pages with the DevTools panel open, SupaExplorer's scanner
 ## Installation (Load Unpacked)
 1. Clone or download this repository.
 2. In Chrome, visit `chrome://extensions`, enable Developer Mode, and choose **Load unpacked**.
-3. Select the `chrome_extension` directory. Chrome will install version 0.1.5 of SupaExplorer with its side panel entry.
+3. Select the repository root directory to install SupaExplorer with its side panel entry.
 
 ## Using SupaExplorer Day-to-Day
 
@@ -97,7 +97,7 @@ As your browser loads pages with the DevTools panel open, SupaExplorer's scanner
 ### API Key Leak Monitoring
 **DevTools scanning.** With the SupaExplorer DevTools panel open, network traffic is automatically scanned for exposed API keys—no configuration needed.  
 **Leak log.** Switch to the "Leaks" tab in the DevTools panel to see all detected leaks with matched values, pattern types, context snippets, and source URLs.  
-**Pattern library.** The scanner recognizes 30+ API key patterns including AWS, Stripe, OpenAI, GitHub, Google Cloud, Azure, SendGrid, Twilio, Slack, and more.  
+**Pattern library.** The scanner recognizes 15 API key patterns including Supabase, AWS, Stripe, OpenAI, GitHub, Google, SendGrid, Twilio, Slack, Discord, Heroku, and more.  
 **False positive filtering.** The scanner intelligently filters common false positives:
   - CSS/SCSS/font files are excluded by default
   - Base64-encoded fonts and images in data URIs are skipped
