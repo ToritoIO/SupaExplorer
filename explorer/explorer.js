@@ -1,3 +1,6 @@
+const TERMS_STORAGE_KEY = "sbde_terms_acceptance";
+const TERMS_VERSION = "1.0";
+
 const storageKeys = {
   connection: "sbde_connection",
   selectedTable: "sbde_currentTable",
@@ -12,6 +15,7 @@ const state = {
   columnCache: {},
   currentTable: null,
   theme: "dark",
+  termsAccepted: false,
 };
 
 const dom = {
@@ -91,6 +95,25 @@ async function storageGet(key) {
   return new Promise((resolve) => {
     chrome.storage.local.get(key, resolve);
   });
+}
+
+function enforceTermsAccess() {
+  if (state.termsAccepted) {
+    return true;
+  }
+  setStatus("Accept the Terms & Conditions in the SupaExplorer side panel to use this explorer.", "error");
+  return false;
+}
+
+async function checkTermsAcceptance() {
+  const stored = await storageGet(TERMS_STORAGE_KEY);
+  const record = stored?.[TERMS_STORAGE_KEY];
+  const accepted = Boolean(record && record.version === TERMS_VERSION);
+  state.termsAccepted = accepted;
+  if (!accepted && dom.browseResults) {
+    dom.browseResults.innerHTML = "<p class=\"terms-required\">Accept the Terms &amp; Conditions in the SupaExplorer side panel to use this explorer.</p>";
+  }
+  return accepted;
 }
 
 async function fetchOpenApi() {
@@ -284,6 +307,9 @@ function coerceValue(raw) {
 
 async function runBrowseQuery(event) {
   event?.preventDefault();
+  if (!enforceTermsAccess()) {
+    return;
+  }
   if (!state.currentTable) return;
 
   const selectedColumns = collectSelectedColumns(dom.browseColumns);
@@ -397,6 +423,9 @@ function collectDynamicFormValues(container) {
 
 async function handleInsert(event) {
   event.preventDefault();
+  if (!enforceTermsAccess()) {
+    return;
+  }
   if (!state.currentTable) return;
 
   const data = collectDynamicFormValues(dom.insertFields);
@@ -486,6 +515,9 @@ function applyColumnWidth(table, columnIndex, width) {
 
 async function handleUpdate(event) {
   event.preventDefault();
+  if (!enforceTermsAccess()) {
+    return;
+  }
   if (!state.currentTable) return;
 
   const data = collectDynamicFormValues(dom.updateFields);
@@ -541,6 +573,9 @@ async function handleUpdate(event) {
 
 async function handleDelete(event) {
   event.preventDefault();
+  if (!enforceTermsAccess()) {
+    return;
+  }
   if (!state.currentTable) return;
 
   const filterColumn = dom.deleteFilterColumn.value;
@@ -594,6 +629,9 @@ function handleClose() {
 }
 
 async function loadStateFromStorage() {
+  if (!state.termsAccepted) {
+    throw new Error("Accept the Terms & Conditions in the SupaExplorer side panel to use this explorer.");
+  }
   const connectionStored = await storageGet(storageKeys.connection);
   const connection = connectionStored?.[storageKeys.connection];
   if (!connection || !connection.projectId || !connection.apiKey) {
@@ -633,20 +671,47 @@ function registerEventListeners() {
     }
   });
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && changes[storageKeys.theme]) {
+    if (area !== "local") {
+      return;
+    }
+    if (changes[storageKeys.theme]) {
       applyTheme(changes[storageKeys.theme].newValue);
+    }
+    if (changes[TERMS_STORAGE_KEY]) {
+      const accepted = Boolean(changes[TERMS_STORAGE_KEY].newValue && changes[TERMS_STORAGE_KEY].newValue.version === TERMS_VERSION);
+      state.termsAccepted = accepted;
+      if (accepted) {
+        bootstrapAfterTerms().catch((error) => {
+          console.error("Explorer bootstrap failed", error);
+        });
+      } else {
+        setStatus("Accept the Terms & Conditions in the SupaExplorer side panel to use this explorer.", "error");
+        if (dom.browseResults) {
+          dom.browseResults.innerHTML = "<p class=\"terms-required\">Accept the Terms &amp; Conditions in the SupaExplorer side panel to use this explorer.</p>";
+        }
+        state.connection = null;
+        state.baseUrl = "";
+        state.openApi = null;
+        state.tables = [];
+        state.columnCache = {};
+        state.currentTable = null;
+      }
     }
   });
 }
 
-async function init() {
-  applyTheme(state.theme);
-  registerEventListeners();
+async function bootstrapAfterTerms() {
+  if (!state.termsAccepted) {
+    return;
+  }
+
   try {
     await loadStateFromStorage();
   } catch (error) {
     setStatus(error.message, "error");
-    dom.browseResults.innerHTML = `<p>${error.message}</p>`;
+    if (dom.browseResults) {
+      dom.browseResults.innerHTML = `<p>${error.message}</p>`;
+    }
     return;
   }
 
@@ -661,9 +726,22 @@ async function init() {
   }
 }
 
+async function init() {
+  applyTheme(state.theme);
+  registerEventListeners();
+  const accepted = await checkTermsAcceptance();
+  if (!accepted) {
+    return;
+  }
+  await bootstrapAfterTerms();
+}
+
 init();
 
 async function refreshSelectedTable() {
+  if (!enforceTermsAccess()) {
+    return;
+  }
   try {
     const tableStored = await storageGet(storageKeys.selectedTable);
     const nextTable = tableStored?.[storageKeys.selectedTable];

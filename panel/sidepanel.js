@@ -1,3 +1,7 @@
+const TERMS_STORAGE_KEY = "sbde_terms_acceptance";
+const TERMS_VERSION = "1.0";
+const TERMS_EFFECTIVE_DATE = "2025-11-05";
+
 const storageKeys = {
   connection: "sbde_connection",
   selectedTable: "sbde_currentTable",
@@ -7,6 +11,7 @@ const storageKeys = {
 
 const ASSET_DETECTIONS_KEY = "sbde_asset_detections";
 const LEAK_DETECTIONS_KEY = "sbde_generic_leaks";
+const REPORT_STORAGE_KEY = "sbde_security_reports";
 
 const RISK_LEVEL_ORDER = {
   low: 0,
@@ -34,6 +39,8 @@ const state = {
   leakDetections: [],
   inspectedHost: null,
   isGeneratingReport: false,
+  termsAccepted: false,
+  hasBootstrappedAfterTerms: false,
 };
 
 const dom = {
@@ -50,6 +57,15 @@ const dom = {
   connectionStatus: document.getElementById("connection-status"),
   themeToggle: document.getElementById("theme-toggle"),
   themeIcon: document.querySelector(".theme-icon"),
+  termsModal: document.getElementById("terms-modal"),
+  termsBackdrop: document.getElementById("terms-backdrop"),
+  termsBody: document.querySelector(".terms-body"),
+  termsAcceptBtn: document.getElementById("terms-accept-btn"),
+  termsDeclineBtn: document.getElementById("terms-decline-btn"),
+  termsCloseBtn: document.getElementById("terms-close-btn"),
+  termsOpenBtn: document.getElementById("terms-open-btn"),
+  termsWithdrawBtn: document.getElementById("terms-withdraw-btn"),
+  termsFootnote: document.getElementById("terms-footnote"),
 };
 
 const sensitiveColumnIndicators = [
@@ -68,10 +84,235 @@ const sensitiveColumnIndicators = [
   "metadata",
 ];
 
+let pendingTermsResolve = null;
+let pendingTermsPromise = null;
+
 function sanitize(value) {
   return (value || "").trim();
 }
 
+function isValidTermsAcceptance(record) {
+  return Boolean(record && typeof record.version === "string" && record.version === TERMS_VERSION);
+}
+
+async function readTermsAcceptance() {
+  const stored = await storageGet(TERMS_STORAGE_KEY);
+  return stored?.[TERMS_STORAGE_KEY] || null;
+}
+
+function lockTermsScroll(lock) {
+  if (!document?.body) {
+    return;
+  }
+  document.body.classList.toggle("terms-locked", lock);
+}
+
+function toggleTermsCloseVisibility(enforce) {
+  if (!dom.termsCloseBtn) {
+    return;
+  }
+  dom.termsCloseBtn.classList.toggle("hidden", Boolean(enforce));
+}
+
+function showTermsModal({ enforce = false, focusBody = true } = {}) {
+  if (!dom.termsModal) {
+    return;
+  }
+  dom.termsModal.classList.remove("hidden");
+  dom.termsModal.dataset.mode = enforce ? "enforce" : "view";
+  toggleTermsCloseVisibility(enforce);
+  lockTermsScroll(true);
+  if (focusBody && dom.termsBody) {
+    dom.termsBody.focus();
+  }
+}
+
+function hideTermsModal() {
+  if (!dom.termsModal) {
+    return;
+  }
+  dom.termsModal.classList.add("hidden");
+  dom.termsModal.dataset.mode = "";
+  lockTermsScroll(false);
+}
+
+function ensureTermsPromise() {
+  if (!pendingTermsPromise) {
+    pendingTermsPromise = new Promise((resolve) => {
+      pendingTermsResolve = resolve;
+    });
+  }
+  return pendingTermsPromise;
+}
+
+function updateTermsControls() {
+  if (dom.termsWithdrawBtn) {
+    dom.termsWithdrawBtn.disabled = !state.termsAccepted;
+  }
+  if (dom.connectBtn) {
+    dom.connectBtn.disabled = !state.termsAccepted;
+  }
+  if (dom.reloadBtn) {
+    dom.reloadBtn.disabled = !state.termsAccepted;
+  }
+  if (dom.clearStorageBtn) {
+    dom.clearStorageBtn.disabled = !state.termsAccepted;
+  }
+  if (dom.reportBtn && !state.termsAccepted) {
+    dom.reportBtn.disabled = true;
+    dom.reportBtn.classList.remove("is-busy");
+  }
+}
+
+function resolvePendingTerms(result) {
+  if (pendingTermsResolve) {
+    pendingTermsResolve(result);
+    pendingTermsResolve = null;
+    pendingTermsPromise = null;
+  }
+}
+
+async function ensureTermsAccepted({ enforce = true } = {}) {
+  const record = await readTermsAcceptance();
+  const accepted = isValidTermsAcceptance(record);
+  state.termsAccepted = accepted;
+  updateTermsControls();
+  if (accepted) {
+    hideTermsModal();
+    resolvePendingTerms(true);
+    return true;
+  }
+  if (enforce) {
+    showTermsModal({ enforce: true });
+    setStatus("Accept the Terms & Conditions to continue.", "error");
+    return ensureTermsPromise();
+  }
+  return false;
+}
+
+function enforceTermsAccess({ showModal = true, announce = true } = {}) {
+  if (state.termsAccepted) {
+    return true;
+  }
+  if (announce) {
+    setStatus("Accept the Terms & Conditions to continue.", "error");
+  }
+  if (showModal) {
+    showTermsModal({ enforce: true, focusBody: false });
+  }
+  return false;
+}
+
+async function handleTermsAccept() {
+  if (dom.termsAcceptBtn) {
+    dom.termsAcceptBtn.disabled = true;
+  }
+  try {
+    const payload = {
+      version: TERMS_VERSION,
+      acceptedAt: new Date().toISOString(),
+      effectiveDate: TERMS_EFFECTIVE_DATE,
+    };
+    await storageSet({ [TERMS_STORAGE_KEY]: payload });
+    state.termsAccepted = true;
+    hideTermsModal();
+    resolvePendingTerms(true);
+    setStatus("Terms accepted. Ready.", "success");
+    updateTermsControls();
+    updateReportButtonState();
+  } catch (error) {
+    console.error("Failed to store terms acceptance", error);
+    setStatus("Failed to record acceptance. Try again.", "error");
+    state.termsAccepted = false;
+    ensureTermsPromise();
+  } finally {
+    if (dom.termsAcceptBtn) {
+      dom.termsAcceptBtn.disabled = false;
+    }
+  }
+}
+
+function handleTermsDecline() {
+  setStatus("Terms declined. Disable or remove the extension to stop usage.", "error");
+  try {
+    window.close();
+  } catch (error) {
+    // Ignore close failures.
+  }
+}
+
+async function handleTermsWithdraw() {
+  try {
+    await storageRemove(TERMS_STORAGE_KEY);
+    await storageRemove(storageKeys.connection);
+    await storageRemove(storageKeys.selectedTable);
+    await storageRemove(storageKeys.connectionMeta);
+    await storageRemove(ASSET_DETECTIONS_KEY);
+    await storageRemove(LEAK_DETECTIONS_KEY);
+    await storageRemove(REPORT_STORAGE_KEY);
+  } catch (error) {
+    console.error("Failed to withdraw consent", error);
+  }
+  state.termsAccepted = false;
+  state.hasBootstrappedAfterTerms = false;
+  markConnectionWriteSource(null);
+  applyConnectionToForm(null, { announce: false });
+  state.tables = [];
+  state.tableCounts = {};
+  state.tableCountErrors = {};
+  state.currentTable = null;
+  state.assetDetections = [];
+  state.leakDetections = [];
+  state.inspectedHost = null;
+  renderTablesList();
+  updateReportButtonState();
+  updateTermsControls();
+  ensureTermsPromise();
+  showTermsModal({ enforce: true });
+  setStatus("Consent withdrawn. Accept the Terms to resume.", "error");
+}
+
+function initTermsUi() {
+  if (dom.termsAcceptBtn) {
+    dom.termsAcceptBtn.addEventListener("click", handleTermsAccept);
+  }
+  if (dom.termsDeclineBtn) {
+    dom.termsDeclineBtn.addEventListener("click", handleTermsDecline);
+  }
+  if (dom.termsCloseBtn) {
+    dom.termsCloseBtn.addEventListener("click", () => {
+      if (state.termsAccepted) {
+        hideTermsModal();
+      }
+    });
+  }
+  if (dom.termsOpenBtn) {
+    dom.termsOpenBtn.addEventListener("click", () => {
+      const enforce = !state.termsAccepted;
+      showTermsModal({ enforce, focusBody: true });
+      if (enforce) {
+        setStatus("Accept the Terms & Conditions to continue.", "error");
+        ensureTermsPromise();
+      }
+    });
+  }
+  if (dom.termsWithdrawBtn) {
+    dom.termsWithdrawBtn.addEventListener("click", handleTermsWithdraw);
+  }
+  if (dom.termsBackdrop) {
+    dom.termsBackdrop.addEventListener("click", () => {
+      if (state.termsAccepted && dom.termsModal?.dataset.mode !== "enforce") {
+        hideTermsModal();
+      }
+    });
+  }
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && state.termsAccepted && !dom.termsModal?.classList.contains("hidden")) {
+      hideTermsModal();
+    }
+  });
+  updateTermsControls();
+}
 function deriveRootDomain(hostname) {
   if (!hostname || typeof hostname !== "string") {
     return null;
@@ -287,6 +528,12 @@ async function resolveInspectedHost() {
 }
 
 async function refreshDetectionSnapshots() {
+  if (!state.termsAccepted) {
+    state.assetDetections = [];
+    state.leakDetections = [];
+    updateReportButtonState();
+    return;
+  }
   const host = await resolveInspectedHost();
   const projectId = state.connection?.projectId ? sanitize(state.connection.projectId) : "";
   const [assetDetections, leakDetections] = await Promise.all([
@@ -375,6 +622,10 @@ function updateReportButtonState({ busy = false } = {}) {
     return;
   }
   dom.reportBtn.classList.remove("is-busy");
+  if (!state.termsAccepted) {
+    dom.reportBtn.disabled = true;
+    return;
+  }
   const hasTables = Array.isArray(state.tables) && state.tables.length > 0;
   const shouldDisable = !(hasTables || hasDetectionFindings());
   dom.reportBtn.disabled = shouldDisable;
@@ -561,6 +812,10 @@ function renderTablesList() {
 }
 
 function handleTableClick(event) {
+  if (!state.termsAccepted) {
+    enforceTermsAccess({ showModal: true, announce: false });
+    return;
+  }
   const row = event.target.closest("tr[data-table]");
   if (!row) return;
   const table = row.dataset.table;
@@ -569,6 +824,10 @@ function handleTableClick(event) {
 }
 
 function handleTableDoubleClick(event) {
+  if (!state.termsAccepted) {
+    enforceTermsAccess({ showModal: true, announce: false });
+    return;
+  }
   const row = event.target.closest("tr[data-table]");
   if (!row) return;
   const table = row.dataset.table;
@@ -579,6 +838,9 @@ function handleTableDoubleClick(event) {
 
 async function handleConnect(event) {
   event?.preventDefault();
+  if (!enforceTermsAccess({ showModal: true })) {
+    return;
+  }
   const connection = {
     projectId: sanitize(dom.projectId.value),
     schema: sanitize(dom.schema.value) || "public",
@@ -589,6 +851,10 @@ async function handleConnect(event) {
 }
 
 async function connectWithConnection(connection, { triggeredBy = "user" } = {}) {
+  if (!state.termsAccepted) {
+    enforceTermsAccess({ showModal: true });
+    return;
+  }
   const normalized = {
     projectId: sanitize(connection.projectId),
     schema: sanitize(connection.schema) || "public",
@@ -1045,11 +1311,13 @@ function buildLeakOnlyReport({ reportId, createdAt, assetDetections, leakDetecti
 
 async function handleGenerateReport(event) {
   event?.preventDefault();
-  
+  if (!enforceTermsAccess({ showModal: true })) {
+    return;
+  }
   if (state.isGeneratingReport) {
     return;
   }
-  
+
   await refreshDetectionSnapshots();
 
   const hasSupabase = hasSupabaseContext();
@@ -1087,6 +1355,10 @@ async function handleGenerateReport(event) {
 }
 
 async function openTableExplorer(table) {
+  if (!state.termsAccepted) {
+    enforceTermsAccess({ showModal: true });
+    return;
+  }
   const targetTable = table || state.currentTable;
   if (!targetTable) {
     setStatus("Select a table first.", "error");
@@ -1122,6 +1394,9 @@ async function openTableExplorer(table) {
 }
 
 async function restoreFromStorage() {
+  if (!state.termsAccepted) {
+    return;
+  }
   try {
     chrome.storage.local.remove("sbde_capturedRequest");
 
@@ -1168,7 +1443,22 @@ async function restoreFromStorage() {
   }
 }
 
+async function bootstrapAfterTerms() {
+  if (!state.termsAccepted) {
+    return;
+  }
+  if (state.hasBootstrappedAfterTerms) {
+    await refreshDetectionSnapshots();
+    return;
+  }
+  state.hasBootstrappedAfterTerms = true;
+  await restoreFromStorage();
+}
+
 async function clearSavedConnection() {
+  if (!enforceTermsAccess({ showModal: true })) {
+    return;
+  }
   markConnectionWriteSource("sidepanel");
   await storageRemove(storageKeys.connection);
   await storageRemove(storageKeys.selectedTable);
@@ -1203,20 +1493,56 @@ function initEventListeners() {
   }
 }
 
-async function init() {
-  setTheme(state.theme, { persist: false });
-  renderTablesList();
-  await restoreFromStorage();
-  initEventListeners();
-  await refreshDetectionSnapshots();
-
+function registerGlobalListeners() {
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") {
       return;
     }
+
+    if (changes[TERMS_STORAGE_KEY]) {
+      const record = changes[TERMS_STORAGE_KEY].newValue;
+      const accepted = isValidTermsAcceptance(record);
+      state.termsAccepted = accepted;
+      if (accepted) {
+        hideTermsModal();
+        resolvePendingTerms(true);
+        if (!state.hasBootstrappedAfterTerms) {
+          bootstrapAfterTerms().catch((error) => {
+            console.error("Post-terms bootstrap failed", error);
+          });
+        } else {
+          refreshDetectionSnapshots().catch((error) => {
+            console.error("Snapshot refresh failed", error);
+          });
+        }
+        updateTermsControls();
+      } else {
+        state.hasBootstrappedAfterTerms = false;
+        ensureTermsPromise();
+        applyConnectionToForm(null, { announce: false });
+        state.tables = [];
+        state.tableCounts = {};
+        state.tableCountErrors = {};
+        state.currentTable = null;
+        state.assetDetections = [];
+        state.leakDetections = [];
+        state.inspectedHost = null;
+        renderTablesList();
+        updateReportButtonState();
+        showTermsModal({ enforce: true });
+        setStatus("Accept the Terms & Conditions to continue.", "error");
+        updateTermsControls();
+      }
+    }
+
     if (changes[storageKeys.theme]) {
       setTheme(changes[storageKeys.theme].newValue, { persist: false });
     }
+
+    if (!state.termsAccepted) {
+      return;
+    }
+
     if (changes[storageKeys.connection]) {
       const change = changes[storageKeys.connection];
       const metaChange = changes[storageKeys.connectionMeta];
@@ -1227,15 +1553,21 @@ async function init() {
       if (announce) {
         state.tables = [];
         state.tableCounts = {};
+        state.tableCountErrors = {};
         state.currentTable = null;
         renderTablesList();
         if (newConnection?.projectId && newConnection?.apiKey) {
-          const triggeredBy = source === "detector" ? "detector" : source === "devtools" ? "devtools" : "storage";
+          const triggeredBy = source === "detector"
+            ? "detector"
+            : source === "devtools"
+              ? "devtools"
+              : "storage";
           connectWithConnection(newConnection, { triggeredBy });
         }
       }
       state.connectionWriteSource = null;
     }
+
     if (changes[ASSET_DETECTIONS_KEY] || changes[LEAK_DETECTIONS_KEY]) {
       refreshDetectionSnapshots();
     }
@@ -1243,11 +1575,17 @@ async function init() {
 
   if (chrome?.tabs?.onActivated) {
     chrome.tabs.onActivated.addListener(() => {
+      if (!state.termsAccepted) {
+        return;
+      }
       refreshDetectionSnapshots();
     });
   }
   if (chrome?.tabs?.onUpdated) {
     chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+      if (!state.termsAccepted) {
+        return;
+      }
       if (!tab?.active) {
         return;
       }
@@ -1256,6 +1594,16 @@ async function init() {
       }
     });
   }
+}
+
+async function init() {
+  setTheme(state.theme, { persist: false });
+  renderTablesList();
+  initTermsUi();
+  initEventListeners();
+  registerGlobalListeners();
+  await ensureTermsAccepted({ enforce: true });
+  await bootstrapAfterTerms();
 }
 
 init();

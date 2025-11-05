@@ -100,7 +100,160 @@
         <img src="https://torito.io/torito.svg" alt="Torito" class="torito-logo" />
         <span>Torito - Security &amp; Privacy Tools</span>
       </a>
+      <div class="footer-links">
+        <button type="button" class="link-button" id="terms-open-btn">Terms &amp; Conditions</button>
+        <button type="button" class="link-button" id="terms-withdraw-btn">Withdraw consent</button>
+      </div>
     </footer>
+
+    <div class="terms-modal hidden" id="terms-modal" role="dialog" aria-modal="true" aria-labelledby="terms-title">
+      <div class="terms-backdrop" id="terms-backdrop" tabindex="-1"></div>
+      <div class="terms-container" role="document">
+        <header class="terms-header">
+          <h2 id="terms-title">SupaExplorer Terms &amp; Conditions</h2>
+          <p class="terms-meta">Version 1.0 &bull; Effective November 5, 2025</p>
+          <p class="terms-summary">
+            Please review and accept these Terms to use the SupaExplorer browser extension. You can revisit them at any
+            time from the footer and withdraw consent whenever you choose.
+          </p>
+        </header>
+        <div class="terms-body" tabindex="0">
+          <ol class="terms-list">
+            <li>
+              <h3>1. Eligibility and Acceptance</h3>
+              <p>
+                By selecting “Accept” or using the SupaExplorer extension (“Extension”), you confirm you are at least the
+                age of majority in your jurisdiction and, if acting for an organization, that you have authority to bind
+                it. If you disagree with these Terms, do not install or use the Extension.
+              </p>
+            </li>
+            <li>
+              <h3>2. Changes to the Terms</h3>
+              <p>
+                We may update these Terms by notifying you through the Extension or the distribution platform. Continued
+                use after an update takes effect constitutes acceptance. If you do not agree to the revised Terms, uninstall
+                or disable the Extension.
+              </p>
+            </li>
+            <li>
+              <h3>3. License Grant</h3>
+              <p>
+                Torito.io, and SupaExplorer.com (“Torito”, "SupaExplorer", “we”, “us”) grants you a revocable, non-exclusive, non-transferable license to
+                install and use the Extension solely to manage your Supabase projects.
+              </p>
+            </li>
+            <li>
+              <h3>4. Restrictions</h3>
+              <p>
+                You agree not to reverse engineer, decompile, or disassemble the Extension except where permitted by law,
+                bypass security controls, misuse it to violate third-party rights, sublicense, or deploy it in
+                safety-critical environments where failure could cause harm.
+              </p>
+            </li>
+            <li>
+              <h3>5. User Responsibilities</h3>
+              <p>
+                You are solely responsible for database permissions, backups, disaster recovery, and ensuring your use of
+                the Extension complies with all applicable laws and third-party terms (including Supabase).
+                Actions taken through the Extension can modify or delete data irreversibly.
+              </p>
+            </li>
+            <li>
+              <h3>6. Data Handling and Privacy</h3>
+              <p>
+                The Extension interacts with Supabase services you authorize. We do not persist credentials or
+                database content on our servers unless described in a separate privacy notice, which is incorporated by
+                reference. Review the Privacy Policy before use.
+              </p>
+            </li>
+            <li>
+              <h3>7. Third-Party Services</h3>
+              <p>
+                Third-party services (Supabase, GitHub, analytics, etc.) have their own terms and availability. We do not
+                control or guarantee those services and are not responsible for outages or changes on their side.
+              </p>
+            </li>
+            <li>
+              <h3>8. No Professional Advice</h3>
+              <p>
+                The Extension provides tooling and automation only. It does not constitute legal, financial, security, or
+                other professional advice. Consult qualified professionals for critical decisions.
+              </p>
+            </li>
+            <li>
+              <h3>9. Warranty Disclaimer</h3>
+              <p>
+                The Extension is provided “as is” and “as available.” To the fullest extent permitted by law, we disclaim
+                all warranties, including implied warranties of merchantability, fitness for a particular purpose, title,
+                and non-infringement.
+              </p>
+            </li>
+            <li>
+              <h3>10. Limitation of Liability</h3>
+              <p>
+                To the maximum extent permitted by law, Torito is not liable for indirect, incidental, consequential, or
+                punitive damages, or for lost profits, data, or business. Aggregate liability is limited to EUR 50 or the
+                amount you paid (if any) for the Extension in the prior 12 months, whichever is greater.
+              </p>
+            </li>
+            <li>
+              <h3>11. Indemnification</h3>
+              <p>
+                You agree to defend, indemnify, and hold harmless Torito and its personnel from claims arising from your
+                misuse of the Extension, breach of these Terms, or violation of applicable law.
+              </p>
+            </li>
+            <li>
+              <h3>12. User Control and Extension Availability</h3>
+              <p>
+                You may disable or uninstall the Extension at any time via your browser. We cannot remotely alter or
+                terminate your installed copy. Some features may rely on Torito-operated services whose discontinuation
+                could affect functionality.
+              </p>
+            </li>
+            <li>
+              <h3>13. Export Compliance</h3>
+              <p>
+                You must comply with all applicable export and sanctions laws. You represent you are not located in, or a
+                resident of, any jurisdiction embargoed by the European Union or the United States and are not on any
+                government restricted parties list.
+              </p>
+            </li>
+            <li>
+              <h3>14. Governing Law and Venue</h3>
+              <p>
+                These Terms are governed by the laws of the Federal Republic of Germany. The courts of Berlin, Germany have
+                exclusive jurisdiction over disputes arising from the Terms.
+              </p>
+            </li>
+            <li>
+              <h3>15. Miscellaneous</h3>
+              <p>
+                These Terms constitute the entire agreement regarding the Extension. If any provision is unenforceable, the
+                remaining provisions remain in effect. You may not assign these Terms without our written consent. We may
+                assign them in connection with a merger, acquisition, or asset transfer.
+              </p>
+            </li>
+            <li>
+              <h3>16. Contact</h3>
+              <p>
+                Questions or legal notices should be sent to <a href="mailto:support@torito.io">support@torito.io</a>.
+              </p>
+            </li>
+          </ol>
+        </div>
+        <footer class="terms-footer">
+          <div class="terms-footnote" id="terms-footnote">
+            Declining disables the Extension. To resume, reopen the side panel and accept the Terms.
+          </div>
+          <div class="terms-buttons">
+            <button type="button" id="terms-close-btn" class="secondary hidden">Close</button>
+            <button type="button" id="terms-decline-btn" class="secondary">Decline</button>
+            <button type="button" id="terms-accept-btn" class="primary">Accept</button>
+          </div>
+        </footer>
+      </div>
+    </div>
 
     <script type="module" src="sidepanel.js"></script>
   </body>

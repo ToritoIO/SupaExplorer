@@ -1,10 +1,31 @@
 ;(function () {
-  if (window.__sbdeOverlayBridge) {
-    window.__sbdeOverlayBridge.open();
+  var TERMS_STORAGE_KEY = "sbde_terms_acceptance";
+  var TERMS_VERSION = "1.0";
+  var initialized = false;
+
+  if (!chrome?.storage?.local) {
     return;
   }
 
-  var OVERLAY_ID = "sbde-explorer-overlay";
+  function isTermsAccepted(record) {
+    return Boolean(record && record.version === TERMS_VERSION);
+  }
+
+  function start() {
+    if (initialized) {
+      if (window.__sbdeOverlayBridge) {
+        window.__sbdeOverlayBridge.open();
+      }
+      return;
+    }
+    initialized = true;
+
+    if (window.__sbdeOverlayBridge) {
+      window.__sbdeOverlayBridge.open();
+      return;
+    }
+
+    var OVERLAY_ID = "sbde-explorer-overlay";
   var REFRESH_EVENT = "SBDE_REFRESH_TABLE";
   var overlayFrame = null;
 
@@ -126,4 +147,20 @@
     close: removeOverlay,
     refresh: postRefresh,
   };
+  }
+
+  chrome.storage.local.get([TERMS_STORAGE_KEY], function (result) {
+    if (isTermsAccepted(result && result[TERMS_STORAGE_KEY])) {
+      start();
+    }
+  });
+
+  chrome.storage.onChanged.addListener(function (changes, area) {
+    if (area !== "local" || !changes[TERMS_STORAGE_KEY]) {
+      return;
+    }
+    if (isTermsAccepted(changes[TERMS_STORAGE_KEY].newValue)) {
+      start();
+    }
+  });
 })();

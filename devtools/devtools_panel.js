@@ -10,6 +10,8 @@ const STATIC_SCAN_CONTEXT_CHARS = 400;
 const STATIC_SCAN_MIME_HINTS = ["javascript", "json", "text"];
 const SUPABASE_URL_REGEX = /https:\/\/([a-z0-9-]+)\.supabase\.co/gi;
 const SUPABASE_KEY_REGEX = /['"](?<token>ey[A-Za-z0-9\-_]{20,}\.[A-Za-z0-9\-_]{20,}\.[A-Za-z0-9\-_]{20,})['"]/g;
+const TERMS_STORAGE_KEY = "sbde_terms_acceptance";
+const TERMS_VERSION = "1.0";
 
 const TAB_CONFIG = [
   { key: "requests", label: "Requests" },
@@ -43,6 +45,42 @@ const state = {
   activeTab: "requests",
 };
 
+let termsAccepted = false;
+
+const isTermsAcceptedRecord = (record) => Boolean(record && record.version === TERMS_VERSION);
+
+function applyTermsAcceptance(accepted) {
+  termsAccepted = accepted;
+  if (!accepted) {
+    state.requests = [];
+    state.selectedId = null;
+    state.activeTab = "requests";
+    state.pendingScrollReset = false;
+    renderRequests();
+    setStatus("Accept the Terms & Conditions in the SupaExplorer side panel to enable monitoring.");
+  } else {
+    setStatus("Monitoring Supabase requests…");
+  }
+}
+
+function initializeTermsGate() {
+  if (!chrome?.storage?.local) {
+    applyTermsAcceptance(false);
+    return;
+  }
+
+  chrome.storage.local.get([TERMS_STORAGE_KEY], (result) => {
+    applyTermsAcceptance(isTermsAcceptedRecord(result?.[TERMS_STORAGE_KEY]));
+  });
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes[TERMS_STORAGE_KEY]) {
+      return;
+    }
+    applyTermsAcceptance(isTermsAcceptedRecord(changes[TERMS_STORAGE_KEY].newValue));
+  });
+}
+
 TAB_CONFIG.forEach(({ key }) => {
   const button = document.querySelector(`.tab-btn[data-tab="${key}"]`);
   if (!button) {
@@ -58,6 +96,8 @@ TAB_CONFIG.forEach(({ key }) => {
     renderRequests();
   });
 });
+
+initializeTermsGate();
 
 const staticDetectionCache = new Set();
 const leakDetectionCache = new Set();
@@ -141,6 +181,9 @@ chrome.devtools.inspectedWindow.eval("location.href", (result, exceptionInfo) =>
   if (exceptionInfo && exceptionInfo.isException) {
     return;
   }
+  if (!termsAccepted) {
+    return;
+  }
   if (typeof result === "string" && result) {
     updatePageScopeFromUrl(result);
     // Now that pageScope is set, load stored detections with proper filtering
@@ -149,6 +192,9 @@ chrome.devtools.inspectedWindow.eval("location.href", (result, exceptionInfo) =>
 });
 
 chrome.devtools.network.onNavigated.addListener((url) => {
+  if (!termsAccepted) {
+    return;
+  }
   updatePageScopeFromUrl(url);
   // Clear detection caches on navigation to allow re-scanning on page reload
   staticDetectionCache.clear();
@@ -1122,6 +1168,9 @@ async function sendEntry(entry, card) {
 }
 
 function handleRequestFinished(request) {
+  if (!termsAccepted) {
+    return;
+  }
   if (shouldCapture(request)) {
     const entry = createEntry(request);
     state.requests.unshift(entry);
@@ -1138,6 +1187,10 @@ function handleRequestFinished(request) {
 }
 
 dom.clearBtn.addEventListener("click", () => {
+  if (!termsAccepted) {
+    setStatus("Accept the Terms & Conditions in the SupaExplorer side panel to enable monitoring.");
+    return;
+  }
   state.requests = [];
   state.selectedId = null;
   state.activeTab = "requests";
@@ -1147,6 +1200,11 @@ dom.clearBtn.addEventListener("click", () => {
 
 if (dom.openSidePanelBtn) {
   dom.openSidePanelBtn.addEventListener("click", () => {
+    if (!termsAccepted) {
+      setStatus("Opening Supabase Database Explorer so you can review the Terms & Conditions.");
+      openSidePanel();
+      return;
+    }
     openSidePanel();
   });
 }
@@ -1162,6 +1220,9 @@ if (dom.authFilterCheckbox) {
 
 // Load stored asset detections from the background script (only from current page)
 async function loadStoredAssetDetections() {
+  if (!termsAccepted) {
+    return;
+  }
   try {
     const ASSET_DETECTIONS_KEY = "sbde_asset_detections";
     const result = await chrome.storage.local.get([ASSET_DETECTIONS_KEY]);
@@ -1233,6 +1294,7 @@ async function loadStoredAssetDetections() {
 // Listen for storage changes to detect new asset detections in real-time
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== 'local') return;
+  if (!termsAccepted) return;
   
   const ASSET_DETECTIONS_KEY = "sbde_asset_detections";
   if (changes[ASSET_DETECTIONS_KEY]) {

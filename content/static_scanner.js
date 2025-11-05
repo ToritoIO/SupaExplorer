@@ -1,11 +1,27 @@
 // Static scanner for detecting hardcoded Supabase credentials in page source and external JS files
 (() => {
-  if (window.__sbdeStaticScannerInjected) {
+  const TERMS_STORAGE_KEY = "sbde_terms_acceptance";
+  const TERMS_VERSION = "1.0";
+  let initialized = false;
+
+  if (!chrome?.storage?.local) {
     return;
   }
-  window.__sbdeStaticScannerInjected = true;
 
-  const SUPABASE_URL_PATTERN = /https?:\/\/([a-z0-9-]+)\.supabase\.co/gi;
+  const isTermsAccepted = (record) => Boolean(record && record.version === TERMS_VERSION);
+
+  const start = () => {
+    if (initialized) {
+      return;
+    }
+    initialized = true;
+
+    if (window.__sbdeStaticScannerInjected) {
+      return;
+    }
+    window.__sbdeStaticScannerInjected = true;
+
+    const SUPABASE_URL_PATTERN = /https?:\/\/([a-z0-9-]+)\.supabase\.co/gi;
   const JWT_TOKEN_PATTERN = /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g;
   const ANON_KEY_PATTERN = /"(eyJ[A-Za-z0-9_-]+\.eyJ[^"]+?role["']?\s*:\s*["']?anon[^"]+)"/g;
   const SERVICE_ROLE_KEY_PATTERN = /"(eyJ[A-Za-z0-9_-]+\.eyJ[^"]+?role["']?\s*:\s*["']?service_role[^"]+)"/g;
@@ -311,5 +327,20 @@
     childList: true,
     subtree: true
   });
-})();
+  };
 
+  chrome.storage.local.get([TERMS_STORAGE_KEY], (result) => {
+    if (isTermsAccepted(result?.[TERMS_STORAGE_KEY])) {
+      start();
+    }
+  });
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes[TERMS_STORAGE_KEY]) {
+      return;
+    }
+    if (isTermsAccepted(changes[TERMS_STORAGE_KEY].newValue)) {
+      start();
+    }
+  });
+})();

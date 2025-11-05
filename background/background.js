@@ -12,10 +12,51 @@ const LEAK_DETECTIONS_KEY = "sbde_generic_leaks";
 const LEAK_DETECTIONS_MAX_PER_HOST = 25;
 const LEAK_DETECTION_TTL_MS = 1000 * 60 * 60 * 24;
 
+const TERMS_STORAGE_KEY = "sbde_terms_acceptance";
+const TERMS_VERSION = "1.0";
+
 const tabDetectionCache = new Map();
 const panelOpenTimestamps = new Map();
 const SHOW_BUBBLE_MESSAGE = "SBDE_SHOW_BUBBLE";
 const HIDE_BUBBLE_MESSAGE = "SBDE_HIDE_BUBBLE";
+const MESSAGE_ALLOWLIST_WITHOUT_TERMS = new Set(["SBDE_OPEN_SIDE_PANEL", "SBDE_CLOSE_OVERLAY"]);
+
+let termsAccepted = false;
+
+function isValidTermsAcceptance(record) {
+  return Boolean(record && typeof record.version === "string" && record.version === TERMS_VERSION);
+}
+
+async function refreshTermsAcceptance() {
+  try {
+    const stored = await chrome.storage.local.get([TERMS_STORAGE_KEY]);
+    const record = stored?.[TERMS_STORAGE_KEY];
+    termsAccepted = isValidTermsAcceptance(record);
+  } catch (error) {
+    termsAccepted = false;
+    console.error("Failed to read terms acceptance", error);
+  }
+  return termsAccepted;
+}
+
+refreshTermsAcceptance();
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local" || !changes[TERMS_STORAGE_KEY]) {
+    return;
+  }
+  const record = changes[TERMS_STORAGE_KEY].newValue;
+  termsAccepted = isValidTermsAcceptance(record);
+  if (!termsAccepted) {
+    tabDetectionCache.clear();
+  }
+});
+
+function respondTermsRequired(sendResponse) {
+  if (typeof sendResponse === "function") {
+    sendResponse({ ok: false, reason: "Accept the Terms & Conditions to use SupaExplorer." });
+  }
+}
 
 const cleanApiKey = (raw) => {
   if (!raw || typeof raw !== "string") return null;
@@ -91,6 +132,9 @@ function normalizeReportPayload(report) {
 }
 
 async function persistSecurityReport(report) {
+  if (!termsAccepted) {
+    throw new Error("Terms not accepted.");
+  }
   const normalized = normalizeReportPayload(report);
   const stored = await chrome.storage.local.get([REPORT_STORAGE_KEY]);
   const current = stored?.[REPORT_STORAGE_KEY];
@@ -128,6 +172,9 @@ async function persistSecurityReport(report) {
 }
 
 async function createSecurityReportTab(report) {
+  if (!termsAccepted) {
+    throw new Error("Terms not accepted.");
+  }
   const saved = await persistSecurityReport(report);
   const url = chrome.runtime.getURL(`report/report.html?id=${encodeURIComponent(saved.id)}`);
   await chrome.tabs.create({ url });
@@ -164,6 +211,9 @@ function normalizeAssetDetection(summary) {
 }
 
 async function recordAssetDetectionSummary(summary) {
+  if (!termsAccepted) {
+    return null;
+  }
   const normalized = normalizeAssetDetection(summary);
   const stored = await chrome.storage.local.get([ASSET_DETECTIONS_KEY]);
   const current = stored?.[ASSET_DETECTIONS_KEY];
@@ -237,6 +287,9 @@ function normalizeLeakDetection(summary) {
 }
 
 async function recordLeakDetectionSummary(summary) {
+  if (!termsAccepted) {
+    return null;
+  }
   const normalized = normalizeLeakDetection(summary);
   const stored = await chrome.storage.local.get([LEAK_DETECTIONS_KEY]);
   const current = stored?.[LEAK_DETECTIONS_KEY];
@@ -278,6 +331,9 @@ async function recordLeakDetectionSummary(summary) {
 }
 
 async function handleSupabaseDetection({ tabId, url, apiKey, schema }) {
+  if (!termsAccepted) {
+    return;
+  }
   const cleanKey = cleanApiKey(apiKey);
   if (!cleanKey) return;
 
@@ -406,6 +462,11 @@ chrome.action.onClicked.addListener(async (tab) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  const messageType = message?.type;
+  if (!termsAccepted && !MESSAGE_ALLOWLIST_WITHOUT_TERMS.has(messageType)) {
+    respondTermsRequired(sendResponse);
+    return false;
+  }
   if (message?.type === "SBDE_OPEN_EXPLORER") {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       const tab = tabs[0];
@@ -538,6 +599,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 chrome.webRequest.onBeforeSendHeaders.addListener(
   (details) => {
+    if (!termsAccepted) {
+      return;
+    }
     const headers = details.requestHeaders || [];
     let apiKey;
     let schema;

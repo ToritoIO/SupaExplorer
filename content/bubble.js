@@ -1,5 +1,21 @@
 (() => {
-  const BUBBLE_ID = "supaexplorer-floating-bubble";
+  const TERMS_STORAGE_KEY = "sbde_terms_acceptance";
+  const TERMS_VERSION = "1.0";
+  let initialized = false;
+
+  if (!chrome?.storage?.local) {
+    return;
+  }
+
+  const isTermsAccepted = (record) => Boolean(record && record.version === TERMS_VERSION);
+
+  const start = () => {
+    if (initialized) {
+      return;
+    }
+    initialized = true;
+
+    const BUBBLE_ID = "supaexplorer-floating-bubble";
   const MESSAGE_ID = "supaexplorer-floating-message";
   const SHOW_EVENT = "SBDE_SHOW_BUBBLE";
   const HIDE_EVENT = "SBDE_HIDE_BUBBLE";
@@ -133,6 +149,22 @@
       showBubble();
     } else if (message.type === HIDE_EVENT) {
       hideBubble();
+    }
+  });
+  };
+
+  chrome.storage.local.get([TERMS_STORAGE_KEY], (result) => {
+    if (isTermsAccepted(result?.[TERMS_STORAGE_KEY])) {
+      start();
+    }
+  });
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes[TERMS_STORAGE_KEY]) {
+      return;
+    }
+    if (isTermsAccepted(changes[TERMS_STORAGE_KEY].newValue)) {
+      start();
     }
   });
 })();
