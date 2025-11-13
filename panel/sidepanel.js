@@ -20,6 +20,8 @@ const RISK_LEVEL_ORDER = {
   critical: 3,
 };
 
+const REPORT_ANALYSIS_CONCURRENCY = 4; // Limit simultaneous table checks to keep PostgREST responsive.
+
 const state = {
   connection: {
     projectId: "",
@@ -713,6 +715,31 @@ function formatList(items, limit = 5) {
   return slice.join(", ");
 }
 
+async function mapWithConcurrency(items, limit, mapper) {
+  if (!Array.isArray(items) || !items.length) {
+    return [];
+  }
+  const concurrency = Math.max(1, Math.floor(limit) || 1);
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (true) {
+      const currentIndex = nextIndex;
+      if (currentIndex >= items.length) {
+        break;
+      }
+      nextIndex += 1;
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+    }
+  }
+
+  const poolSize = Math.min(concurrency, items.length);
+  const workers = Array.from({ length: poolSize }, worker);
+  await Promise.all(workers);
+  return results;
+}
+
 function summarizeClaims(claims) {
   if (!claims || typeof claims !== "object") return null;
   const summary = {};
@@ -966,25 +993,30 @@ async function refreshTableCounts() {
 async function analyzeTableSecurity(table) {
   const url = new URL(`${state.baseUrl.replace(/\/$/, "")}/${table}`);
   const headers = buildHeaders(state.connection);
-  headers.Prefer = "count=exact";
+  const cachedRowCount = typeof state.tableCounts?.[table] === "number" ? state.tableCounts[table] : null;
+  if (cachedRowCount === null) {
+    headers.Prefer = "count=exact";
+  }
   url.searchParams.set("select", "*");
   url.searchParams.set("limit", "1");
 
   let accessible = false;
   let status = null;
-  let rowCount = typeof state.tableCounts?.[table] === "number" ? state.tableCounts[table] : null;
+  let rowCount = cachedRowCount;
   let columns = [];
   let errorDetail = null;
 
   try {
     const response = await fetch(url.toString(), { headers });
     status = response.status;
-    const contentRange = response.headers.get("Content-Range");
-    const parsedCount = parseRowCountFromRange(contentRange);
-    if (parsedCount !== null) {
-      rowCount = parsedCount;
-      if (!state.tableCounts) state.tableCounts = {};
-      state.tableCounts[table] = parsedCount;
+    if (cachedRowCount === null) {
+      const contentRange = response.headers.get("Content-Range");
+      const parsedCount = parseRowCountFromRange(contentRange);
+      if (parsedCount !== null) {
+        rowCount = parsedCount;
+        if (!state.tableCounts) state.tableCounts = {};
+        state.tableCounts[table] = parsedCount;
+      }
     }
 
     if (response.ok) {
@@ -1163,12 +1195,12 @@ async function buildSecurityReport() {
   const keyRole = inferRoleFromClaims(apiKeyClaims);
   const bearerRole = inferRoleFromClaims(bearerClaims);
 
-  const findings = [];
-  for (const table of state.tables) {
-    // eslint-disable-next-line no-await-in-loop
-    const detail = await analyzeTableSecurity(table);
-    findings.push(detail);
-  }
+  const tablesToAnalyze = Array.isArray(state.tables) ? state.tables : [];
+  const findings = await mapWithConcurrency(
+    tablesToAnalyze,
+    REPORT_ANALYSIS_CONCURRENCY,
+    (table) => analyzeTableSecurity(table)
+  );
 
   const accessibleTables = findings.filter((item) => item.accessible);
   const protectedTables = findings.filter((item) => item.policyState === "protected");
