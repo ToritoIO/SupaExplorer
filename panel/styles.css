@@ -93,6 +93,13 @@ legend {
   width: 100%;
 }
 
+.header-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .app-header .status {
   align-self: flex-start;
 }
@@ -113,14 +120,13 @@ body[data-theme="dark"] .app-logo {
 }
 
 .theme-toggle {
-  margin-left: auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 36px;
   height: 36px;
   border-radius: 18px;
-  border: 1px solid var(--border);
+  border: none;
   background: var(--button-bg);
   color: var(--fg);
   cursor: pointer;
@@ -150,6 +156,20 @@ body[data-theme="dark"] .app-logo {
   width: 18px;
   height: 18px;
   display: none;
+}
+
+.header-action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: currentColor;
+}
+
+.header-action-icon svg {
+  width: 18px;
+  height: 18px;
 }
 
 .theme-icon[data-theme="dark"] .icon-sun {
