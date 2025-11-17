@@ -125,8 +125,25 @@
           <button type="button" class="share-report-close" id="share-report-close-btn" aria-label="Close share report options">&times;</button>
         </header>
         <div class="share-report-actions">
-          <button type="button" class="primary" id="share-report-view-btn">View Report</button>
-          <button type="button" class="secondary" id="share-report-share-btn" disabled title="Sharing is coming soon">Share Report</button>
+          <button type="button" class="primary share-report-view" id="share-report-view-btn">
+            <span class="share-report-action-icon" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+                <rect width="256" height="256" fill="none" />
+                <path d="M200,224H56a8,8,0,0,1-8-8V40a8,8,0,0,1,8-8h96l56,56V216A8,8,0,0,1,200,224Z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16" />
+                <polyline points="152 32 152 88 208 88" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16" />
+              </svg>
+            </span>
+            <span>View Report</span>
+          </button>
+          <button type="button" class="secondary share-report-share" id="share-report-share-btn" disabled title="Sharing is coming soon">
+            <span class="share-report-action-icon" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+                <rect width="256" height="256" fill="none" />
+                <path d="M80,128a80,80,0,1,1,80,80H72A56,56,0,1,1,85.92,97.74" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16" />
+              </svg>
+            </span>
+            <span>Share Report</span>
+          </button>
         </div>
         <p class="share-report-note">Secure sharing is coming soon. For now you can open the report locally.</p>
       </div>

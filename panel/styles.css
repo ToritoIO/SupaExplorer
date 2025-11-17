@@ -867,6 +867,27 @@ body.share-report-locked {
   gap: 10px;
 }
 
+.share-report-share,
+.share-report-view {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.share-report-action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+}
+
+.share-report-action-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
 .share-report-close {
   border: none;
   background: transparent;
