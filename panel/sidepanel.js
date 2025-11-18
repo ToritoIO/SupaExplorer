@@ -54,7 +54,6 @@ const dom = {
   bearer: document.getElementById("bearer"),
   connectBtn: document.getElementById("connect-btn"),
   clearStorageBtn: document.getElementById("clear-storage-btn"),
-  reloadBtn: document.getElementById("reload-btn"),
   reportBtn: document.getElementById("report-btn"),
   tablesList: document.getElementById("tables-list"),
   connectionStatus: document.getElementById("connection-status"),
@@ -159,9 +158,6 @@ function updateTermsControls() {
   }
   if (dom.connectBtn) {
     dom.connectBtn.disabled = !state.termsAccepted;
-  }
-  if (dom.reloadBtn) {
-    dom.reloadBtn.disabled = !state.termsAccepted;
   }
   if (dom.clearStorageBtn) {
     dom.clearStorageBtn.disabled = !state.termsAccepted;
@@ -970,7 +966,6 @@ async function connectWithConnection(connection, { triggeredBy = "user" } = {}) 
         : "Connecting";
   setStatus(`${statusPrefix}…`, "progress");
   dom.connectBtn.disabled = true;
-  dom.reloadBtn.disabled = true;
 
   try {
     state.openApi = await fetchOpenApi();
@@ -1012,7 +1007,6 @@ async function connectWithConnection(connection, { triggeredBy = "user" } = {}) 
   } finally {
     await refreshDetectionSnapshots();
     dom.connectBtn.disabled = false;
-    dom.reloadBtn.disabled = false;
     updateReportButtonState();
   }
 }
@@ -1315,6 +1309,7 @@ async function buildSecurityReport() {
     projectId: state.connection.projectId,
     schema: state.connection.schema,
     baseUrl: state.baseUrl,
+    inspectedHost: state.inspectedHost || null,
     connectionSummary: {
       apiKeyRole: keyRole || null,
       bearerRole: bearerRole || null,
@@ -1383,6 +1378,7 @@ function buildLeakOnlyReport({ reportId, createdAt, assetDetections, leakDetecti
     projectId: projectLabel,
     schema: schemaLabel,
     baseUrl,
+    inspectedHost: state.inspectedHost || null,
     connectionSummary: null,
     summary: {
       riskLevel,
@@ -1568,7 +1564,6 @@ async function clearSavedConnection() {
 
 function initEventListeners() {
   dom.connectionForm.addEventListener("submit", handleConnect);
-  dom.reloadBtn.addEventListener("click", handleConnect);
   dom.tablesList.addEventListener("click", handleTableClick);
   dom.tablesList.addEventListener("dblclick", handleTableDoubleClick);
   dom.clearStorageBtn.addEventListener("click", clearSavedConnection);

@@ -50,7 +50,7 @@ function renderMeta(report) {
   dom.meta.innerHTML = "";
   const items = [
     {
-      label: "Project",
+      label: "Supabase Project ID",
       value: report.projectId || "Unknown",
     },
     {
@@ -62,6 +62,14 @@ function renderMeta(report) {
       value: formatDate(report.createdAt),
     },
   ];
+
+  const inspectedHost = typeof report.inspectedHost === "string" ? report.inspectedHost.trim() : "";
+  if (inspectedHost) {
+    items.splice(1, 0, {
+      label: "Domain",
+      value: inspectedHost,
+    });
+  }
 
   if (
     report.connectionSummary?.usesDistinctBearer &&
