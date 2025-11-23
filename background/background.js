@@ -469,11 +469,16 @@ async function openSidePanelForTab(tabId, { force = false } = {}) {
   }
 }
 
-chrome.runtime.onInstalled.addListener(async () => {
+chrome.runtime.onInstalled.addListener(async (details) => {
   try {
     await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   } catch (error) {
     console.error("Failed to configure side panel behavior:", error);
+  }
+
+  // Open welcome page on install or update
+  if (details.reason === "install" || details.reason === "update") {
+    chrome.tabs.create({ url: "https://supaexplorer.com/" });
   }
 });
 
