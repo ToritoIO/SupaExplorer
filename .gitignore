@@ -1,8 +1,5 @@
 .DS_Store
 extension_description.txt
 store/
-landing/
 releases/
 build_release.py
-app/
-new-site/
