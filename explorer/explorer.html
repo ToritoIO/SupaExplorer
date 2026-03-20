@@ -53,8 +53,8 @@
                   </select>
                 </label>
               </div>
-              <fieldset class="filter-group">
-                <legend>Filter</legend>
+              <div class="filter-section">
+                <span class="section-label">Filter</span>
                 <div class="filter-grid">
                   <label>
                     <span>Column</span>
@@ -82,7 +82,7 @@
                     <input id="browse-filter-value" type="text" placeholder="Enter filter value" />
                   </label>
                 </div>
-              </fieldset>
+              </div>
             </div>
           </div>
           <div class="form-footer">
@@ -105,8 +105,8 @@
 
       <section id="tab-update" class="tab-panel">
         <form id="update-form" class="column-form">
-          <fieldset>
-            <legend>Filter</legend>
+          <div class="filter-section">
+            <span class="section-label">Filter</span>
             <div class="grid-form">
               <label>
                 Column
@@ -130,11 +130,11 @@
                 <input id="update-filter-value" type="text" />
               </label>
             </div>
-          </fieldset>
-          <fieldset>
-            <legend>New values</legend>
+          </div>
+          <div class="filter-section">
+            <span class="section-label">New values</span>
             <div id="update-fields" class="dynamic-fields"></div>
-          </fieldset>
+          </div>
           <div class="form-footer">
             <button type="submit" class="primary">Update rows</button>
           </div>

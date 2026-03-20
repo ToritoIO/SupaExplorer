@@ -64,8 +64,9 @@
       backdrop.className = "sbde-overlay-backdrop";
       backdrop.style.position = "absolute";
       backdrop.style.inset = "0";
-      backdrop.style.background = "rgba(15, 23, 42, 0.65)";
-      backdrop.style.backdropFilter = "blur(2px)";
+      backdrop.style.background = "rgba(0, 0, 0, 0.5)";
+      backdrop.style.backdropFilter = "blur(4px)";
+      backdrop.style.webkitBackdropFilter = "blur(4px)";
       backdrop.style.pointerEvents = "auto";
 
       var frameWrapper = document.createElement("div");
@@ -74,10 +75,10 @@
       frameWrapper.style.height = "90vh";
       frameWrapper.style.maxWidth = "1280px";
       frameWrapper.style.maxHeight = "900px";
-      frameWrapper.style.borderRadius = "16px";
+      frameWrapper.style.borderRadius = "12px";
       frameWrapper.style.overflow = "hidden";
-      frameWrapper.style.boxShadow = "0 24px 60px rgba(8, 15, 35, 0.75)";
-      frameWrapper.style.border = "1px solid rgba(148, 163, 184, 0.25)";
+      frameWrapper.style.boxShadow = "0 16px 40px rgba(0, 0, 0, 0.5)";
+      frameWrapper.style.border = "1px solid rgba(255, 255, 255, 0.06)";
       frameWrapper.style.pointerEvents = "auto";
 
       overlayFrame = document.createElement("iframe");
@@ -85,7 +86,7 @@
       overlayFrame.style.border = "none";
       overlayFrame.style.width = "100%";
       overlayFrame.style.height = "100%";
-      overlayFrame.style.background = "#0b1220";
+      overlayFrame.style.background = "#09090b";
 
       frameWrapper.appendChild(overlayFrame);
       overlay.appendChild(backdrop);

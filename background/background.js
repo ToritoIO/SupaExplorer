@@ -478,7 +478,12 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
   // Open welcome page on install or update
   if (details.reason === "install" || details.reason === "update") {
-    chrome.tabs.create({ url: "https://supaexplorer.com/" });
+    const utm = new URLSearchParams({
+      utm_source: "extension",
+      utm_medium: "chrome",
+      utm_campaign: details.reason,
+    });
+    chrome.tabs.create({ url: `https://supaexplorer.com/?${utm}` });
   }
 });
 

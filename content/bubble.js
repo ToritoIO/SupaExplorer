@@ -35,11 +35,12 @@
     bubble.style.top = "50%";
     bubble.style.right = "24px";
     bubble.style.transform = "translateY(-50%)";
-    bubble.style.width = "52px";
-    bubble.style.height = "52px";
-    bubble.style.borderRadius = "26px";
-    bubble.style.boxShadow = "0 18px 40px rgba(15, 23, 42, 0.35)";
-    bubble.style.background = "linear-gradient(135deg, rgba(30, 64, 175, 0.95), rgba(14, 116, 144, 0.95))";
+    bubble.style.width = "44px";
+    bubble.style.height = "44px";
+    bubble.style.borderRadius = "22px";
+    bubble.style.boxShadow = "0 4px 16px rgba(0, 0, 0, 0.25)";
+    bubble.style.background = "#18181b";
+    bubble.style.border = "1px solid rgba(255, 255, 255, 0.08)";
     bubble.style.display = "flex";
     bubble.style.alignItems = "center";
     bubble.style.justifyContent = "center";
@@ -53,8 +54,8 @@
     const icon = document.createElement("img");
     icon.src = chrome.runtime.getURL("panel/supabase-database-explorer.svg");
     icon.alt = "Open SupaExplorer";
-    icon.style.width = "28px";
-    icon.style.height = "28px";
+    icon.style.width = "20px";
+    icon.style.height = "20px";
     icon.style.pointerEvents = "none";
     icon.style.filter = "invert(1)";
 
@@ -89,9 +90,12 @@
     message.style.transform = "translateY(-50%)";
     message.style.maxWidth = "260px";
     message.style.padding = "12px 16px";
-    message.style.borderRadius = "16px";
-    message.style.background = "rgba(15, 23, 42, 0.92)";
-    message.style.boxShadow = "0 18px 40px rgba(15, 23, 42, 0.35)";
+    message.style.borderRadius = "8px";
+    message.style.background = "rgba(9, 9, 11, 0.9)";
+    message.style.backdropFilter = "blur(16px)";
+    message.style.webkitBackdropFilter = "blur(16px)";
+    message.style.boxShadow = "0 8px 24px rgba(0, 0, 0, 0.3)";
+    message.style.border = "1px solid rgba(255, 255, 255, 0.06)";
     message.style.color = "#f8fafc";
     message.style.fontFamily = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
     message.style.fontSize = "13px";
